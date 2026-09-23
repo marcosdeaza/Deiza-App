@@ -1,0 +1,47 @@
+name: Build
+
+# Builds the installers on each platform's own runner and keeps them as artifacts.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos
+            command: npm run dist:mac -- --arm64 --x64
+          - os: windows-latest
+            name: windows
+            command: npm run dist:win
+          - os: ubuntu-latest
+            name: linux
+            command: npm run dist:linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: ${{ matrix.command }}
+        env:
+          # Unsigned (ad hoc) builds; signing uses the APPLE_* / WIN_CSC_* secrets when they exist.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deiza-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb

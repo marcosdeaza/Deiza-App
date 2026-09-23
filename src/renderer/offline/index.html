@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src file:; img-src file: data:">
+<title>Sin conexión</title>
+<style>
+  @font-face { font-family: 'Playfair'; src: url('../fonts/playfair-latin.woff2') format('woff2'); font-weight: 400 900; }
+  @font-face { font-family: 'Inter'; src: url('../fonts/inter-latin.woff2') format('woff2'); font-weight: 100 900; }
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #1c1917; color: #ebe6e0; font: 15px/1.6 Inter, system-ui, sans-serif; display: grid; place-items: center; -webkit-font-smoothing: antialiased; }
+  main { max-width: 440px; padding: 24px; text-align: center; }
+  .rose { width: 64px; height: 64px; margin: 0 auto 22px; background: #c0525f; -webkit-mask: url('../rose.svg') center/contain no-repeat; opacity: .9; }
+  h1 { font: 400 34px/1.1 Playfair, Georgia, serif; margin: 0 0 12px; }
+  p { color: #a8998a; margin: 0 0 24px; }
+  button { font: 500 14px Inter, system-ui, sans-serif; background: #ac3945; color: #f5efe8; border: 0; border-radius: 11px; height: 38px; padding: 0 18px; cursor: pointer; }
+  button:hover { filter: brightness(1.1); }
+  small { display: block; margin-top: 18px; color: #6f6358; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="rose"></div>
+  <h1>No llegamos a Deiza</h1>
+  <p>Parece que no hay conexión o deiza.org no responde. El modo Code sigue disponible con tus sesiones guardadas.</p>
+  <button id="retry">Reintentar</button>
+  <small id="reason"></small>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById('reason').textContent = q.get('reason') || '';
+  const retry = () => window.deizaOffline && window.deizaOffline.retry(q.get('url') || '');
+  document.getElementById('retry').onclick = retry;
+  window.addEventListener('online', retry);
+  setInterval(() => { if (navigator.onLine) retry(); }, 15000);
+</script>
+</body>
+</html>

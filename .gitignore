@@ -1,0 +1,8 @@
+node_modules/
+release/
+.DS_Store
+*.log
+test/shots/
+.release.env
+test/_*.js
+__pycache__/
