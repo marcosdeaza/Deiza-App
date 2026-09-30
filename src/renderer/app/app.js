@@ -98,13 +98,14 @@ const S = {
   panel: { open: localStorage.getItem('deiza:panel') === '1', tab: 'files', file: null, view: 'page', url: '', tree: new Map(), expanded: new Set(), width: Number(localStorage.getItem('deiza:panel:w')) || 0 },
   openTools: new Set(),
   renaming: null,
+  afterglow: 0,
 };
 const itemEls = new Map();
 
 // Code models and effort levels (ids match the engine)
 const MODELS = [
-  { id: 'deiza-omniscient', name: 'Liquid 5', tag: 'Equilibrado y agéntico', desc: 'El más equilibrado para programar. Ve imágenes.', badge: 'Recomendado' },
-  { id: 'deiza-solid-4.6', name: 'Solid 4.6', tag: 'Razonamiento profundo', desc: 'Razona a fondo: arquitectura y bugs difíciles.', badge: null },
+  { id: 'deiza-omniscient', name: 'Liquid 5.1', tag: 'Equilibrado y agéntico', desc: 'El más equilibrado para programar. Ve imágenes.', badge: 'Recomendado' },
+  { id: 'deiza-solid-5', name: 'Solid 5', tag: 'El más capaz', desc: 'Metódico: planifica, verifica y resuelve lo difícil. Ve imágenes.', badge: 'Nuevo' },
   { id: 'deiza-gas-4.5', name: 'Gas 4.5', tag: 'Instantáneo', desc: 'El más rápido, para cambios pequeños.', badge: null },
 ];
 const EFFORTS = [
@@ -114,7 +115,7 @@ const EFFORTS = [
   { id: 'ultra',  name: 'Ultra',       desc: 'Planifica a fondo, prueba y revisa su propio diff antes de terminar.' },
   { id: 'max',    name: 'Omnisciente', desc: 'Máximo razonamiento autónomo: razona, ejecuta, evalúa en bucle. Más lento y gasta más.' },
 ];
-const MODEL_ALIASES = { 'deiza-solid-4.5': 'deiza-solid-4.6', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient' };
+const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid-5.1': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
 const modelInfo = (id) => MODELS.find(m => m.id === (MODEL_ALIASES[id] || id)) || MODELS[0];
 const effortInfo = (id) => EFFORTS.find(e => e.id === id) || EFFORTS[1];
 const effortLevel = (id) => Math.max(1, EFFORTS.findIndex(e => e.id === id) + 1);
@@ -413,12 +414,15 @@ function renderAccount() {
 
   const us = S.usage;
   if (us && !us.error && us.token_limit) {
-    const pct = Math.min(100, Math.round((us.tokens_used / us.token_limit) * 100));
-    const reset = us.reset_in_seconds ? `se renueva en ${fmtDuration(us.reset_in_seconds * 1000)}` : '';
-    foot.append(h('div', { class: 'meter', title: `${us.tokens_used.toLocaleString('es')} de ${us.token_limit.toLocaleString('es')} tokens` },
-      h('div', { class: 'row' }, h('span', { text: 'Uso · ventana de 5 h' }), h('span', { text: `${pct} %` })),
-      h('div', { class: 'track' }, h('div', { class: `fill${pct > 85 ? ' hot' : ''}`, style: { width: `${pct}%` } })),
-      reset ? h('div', { class: 'row' }, h('span', { text: reset })) : null));
+    const pct = Math.min(100, Math.round(us.pct != null ? us.pct : (us.tokens_used / us.token_limit) * 100));
+    const wk = Math.round(us.weekly_pct || 0);
+    const reset = us.reset_in_seconds ? T('se renueva en {t}', { t: fmtDuration(us.reset_in_seconds * 1000) }) : '';
+    const state = us.state || (pct >= 100 ? 'exhausted' : pct >= 85 ? 'warning' : 'ok');
+    const label = state === 'grace' ? T('Cortesía') : state === 'exhausted' ? T('Agotado') : `${pct} %`;
+    foot.append(h('div', { class: `meter ${state}`, title: T('Ventana de 5 horas: {p} %. Semana: {w} %. El uso cuenta lo que lees y escribes, incluido el contexto y el razonamiento.', { p: pct, w: wk }) },
+      h('div', { class: 'row' }, h('span', { text: us.limit_scope === 'weekly' ? T('Uso · semana') : T('Uso · ventana de 5 h') }), h('span', { text: label })),
+      h('div', { class: 'track' }, h('div', { class: `fill${pct >= 85 ? ' hot' : ''}`, style: { width: `${pct}%` } })),
+      h('div', { class: 'row' }, h('span', { text: reset }), wk ? h('span', { text: T('semana {w} %', { w: wk }) }) : null)));
   } else if (us && us.error === 'plan') {
     foot.append(h('button', { class: 'btn ghost small', onclick: () => deiza.chatGo('plans') }, 'Deiza Code: ver planes'));
   }
@@ -449,6 +453,9 @@ async function refreshSessions() {
 async function openSession(id) {
   if (S.cur && S.cur.id === id) return;
   saveDraft();
+  S.images = [];
+  const oldAtts = $('#composer-wrap .atts, .start .atts');
+  if (oldAtts) { oldAtts.innerHTML = ''; oldAtts.classList.add('hidden'); }
   S.loading = id;
   const doc = await deiza.code.get(id);
   if (S.loading !== id) return;
@@ -469,24 +476,50 @@ async function openSession(id) {
 
 function startNew(folder) {
   saveDraft();
+  const liveDraft = S.drafts.get('_active_input') || (S.cur ? S.drafts.get(S.cur.id) : '') || '';
   S.cur = null;
   S.pendingFolder = folder || null;
+  S.images = [];
+  const oldAtts = $('#composer-wrap .atts, .start .atts');
+  if (oldAtts) { oldAtts.innerHTML = ''; oldAtts.classList.add('hidden'); }
+  if (liveDraft) {
+    S.drafts.set('_new', liveDraft);
+    if (folder) S.drafts.set(`_pending:${folder}`, liveDraft);
+  }
   S.status = null;
   renderSidebar();
   renderThread();
   renderPanel();
-  setTimeout(() => $('.start textarea')?.focus(), 20);
+  setTimeout(() => $('.start textarea, #composer-wrap textarea')?.focus(), 20);
 }
 
 async function pickFolder() {
+  saveDraft();
+  const liveDraft = S.drafts.get('_active_input') || '';
   const folder = await deiza.code.pickFolder();
-  if (folder) { S.pendingFolder = folder; if (!S.cur) renderThread(); else startNew(folder); }
+  if (folder) {
+    saveDraft();
+    S.pendingFolder = folder;
+    if (liveDraft) {
+      S.drafts.set(`_pending:${folder}`, liveDraft);
+      S.drafts.set('_new', liveDraft);
+    }
+    if (!S.cur) renderThread(); else startNew(folder);
+  }
   return folder;
 }
 
 function saveDraft() {
-  const ta = $('#composer-wrap textarea') || $('.start textarea');
-  if (ta) S.drafts.set(S.cur ? S.cur.id : '_new', ta.value);
+  const ta = $('#composer-wrap textarea') || $('.start textarea') || $('textarea');
+  if (ta && typeof ta.value === 'string') {
+    const val = ta.value;
+    const k = S.cur ? S.cur.id : (S.pendingFolder ? `_pending:${S.pendingFolder}` : '_new');
+    S.drafts.set(k, val);
+    if (val.trim()) {
+      S.drafts.set('_active_input', val);
+      try { localStorage.setItem('deiza:code:draft', val); } catch {}
+    }
+  }
 }
 
 // ── thread ────────────────────────────────────────────────────────────────────
@@ -507,6 +540,7 @@ function renderThread() {
     renderStatus();
     return;
   }
+  if (S.heroDirector) { S.heroDirector.stop(); S.heroDirector = null; }
   head.classList.remove('hidden');
   wrap.classList.remove('hidden');
   head.innerHTML = '';
@@ -517,13 +551,23 @@ function renderThread() {
   head.append(...[chip, branch, h('div', { class: 'head-spacer' }), panelBtn].filter(Boolean));
   if (S.cur.folderMissing) tr.append(h('div', { class: 'errcard' }, h('div', { class: 'h', text: 'La carpeta ya no existe' }), h('p', { text: `${S.cur.folder} se movió o se borró. Puedes leer el historial, pero no continuar esta sesión.` })));
   for (const it of S.cur.items) tr.append(renderItemEl(it));
+  const banner = renderQuotaBanner();
+  if (banner) wrap.append(banner);
   wrap.append(renderComposer(false));
   renderStatus();
 }
 
 function renderHero() {
   const box = h('div', { class: 'start' });
-  const greet = h('div', { class: 'greet' }, DeizaRose(52, { className: 'breathe' }), h('h1', { text: S.pendingFolder ? `¿Qué hacemos en ${basename(S.pendingFolder)}?` : '¿Qué construimos hoy?' }));
+  const stage = capuEnabled() ? h('div', { class: 'capu capu-hero', title: 'Capu' }) : null;
+  if (S.heroDirector) { S.heroDirector.stop(); S.heroDirector = null; }
+  if (stage) {
+    const heroPlayer = new Capu.Player(stage, { px: 4, crop: Capu.centeredBox(['idle', 'hello', 'coffee', 'duck', 'sleep', 'thinking'], 1), scene: 'hello' });
+    S.heroDirector = new Capu.Director(heroPlayer, { sleepAfter: 90000 });
+    if (!S.heroHello) S.heroDirector.set('hello');
+    S.heroHello = true;
+  }
+  const greet = h('div', { class: 'greet' }, stage || DeizaRose(52, { className: 'breathe' }), h('h1', { text: S.pendingFolder ? `¿Qué hacemos en ${basename(S.pendingFolder)}?` : '¿Qué construimos hoy?' }));
   box.append(greet);
   box.append(h('p', { class: 'sub', text: S.pendingFolder ? tildeHome(S.pendingFolder) : 'Elige una carpeta y pide un cambio, un arreglo o una app entera.' }));
   if (S.usage && S.usage.error === 'plan') {
@@ -537,7 +581,17 @@ function renderHero() {
   if (S.recents.length) {
     rec.append(h('div', { class: 'lbl', text: 'Recientes' }));
     for (const f of S.recents.slice(0, 7)) {
-      rec.append(h('button', { class: 'recent', onclick: () => { S.pendingFolder = f; renderThread(); setTimeout(() => $('.start textarea')?.focus(), 10); } },
+      rec.append(h('button', { class: 'recent', onclick: () => {
+        saveDraft();
+        const liveDraft = S.drafts.get('_active_input') || '';
+        S.pendingFolder = f;
+        if (liveDraft) {
+          S.drafts.set(`_pending:${f}`, liveDraft);
+          S.drafts.set('_new', liveDraft);
+        }
+        renderThread();
+        setTimeout(() => $('.start textarea, #composer-wrap textarea')?.focus(), 10);
+      } },
         icon('folder'), h('span', { text: basename(f) }), h('small', { text: tildeHome(f) })));
     }
   } else {
@@ -597,7 +651,8 @@ function renderItem(it) {
     case 'tool': return renderTool(it);
     case 'plan': return renderPlan(it);
     case 'approval': return renderApproval(it);
-    case 'notice': return h('div', { class: 'notice', text: it.text });
+    case 'notice': return h('div', { class: `notice${it.kind ? ` ${it.kind}` : ''}`, text: it.text });
+    case 'handoff': return renderHandoff(it);
     case 'error': return renderError(it);
     case 'turn': return renderTurn(it);
     default: return h('div');
@@ -834,11 +889,35 @@ function renderError(it) {
       h('div', { class: 'row' }, h('button', { class: 'btn primary small', onclick: () => chooseModel({ model: other.id }) }, T('Usar {m}', { m: other.name }))));
   } else if (it.code === 'usage') {
     const us = S.usage;
-    box.append(h('div', { class: 'h', text: 'Has llegado al límite de tu ventana de uso' }),
-      h('p', { text: us && us.reset_in_seconds ? `Se renueva en ${fmtDuration(us.reset_in_seconds * 1000)}.` : 'Se renueva cada 5 horas.' }));
+    box.append(h('div', { class: 'h', text: T('Sin uso disponible por ahora') }),
+      h('p', { text: it.message || (us && us.reset_in_seconds ? T('Se renueva en {t}.', { t: fmtDuration(us.reset_in_seconds * 1000) }) : T('Se renueva cada 5 horas.')) }));
   } else {
     box.append(h('div', { class: 'h', text: it.code === 'crash' ? 'El agente se detuvo' : 'Algo falló' }), h('p', { class: 'sel', text: it.message || 'Error desconocido.' }));
   }
+  return box;
+}
+
+function renderHandoff(it) {
+  const box = h('div', { class: 'handoff' });
+  const mini = h('div', { class: 'capu capu-mini' });
+  mini.innerHTML = Capu.toSVG(Capu.frameAt('wilt', 0), { px: 1, crop: Capu.sceneBox(['wilt'], 1) });
+  const txt = h('div', { class: 'hb' },
+    h('div', { class: 'h', text: T('Traspaso guardado') }),
+    h('p', { text: it.path
+      ? (it.by === 'app' ? T('El agente no llegó a escribirlo: la app lo ha generado con lo hecho en la sesión.') : T('Contexto, cambios y lo que queda por hacer, listo para la siguiente sesión o para otra IA.'))
+      : T('Modo Plan: el traspaso no se guarda como archivo. Cópialo desde aquí.') }));
+  const row = h('div', { class: 'row' });
+  if (it.path) {
+    row.append(h('button', { class: 'btn primary small', onclick: () => openFile(it.path, 'rendered') }, T('Abrir {f}', { f: it.path })));
+    row.append(h('button', { class: 'btn ghost small', onclick: async () => {
+      const d = await deiza.code.fsRead({ id: S.cur.id, rel: it.path });
+      if (d && typeof d.content === 'string') { navigator.clipboard.writeText(d.content); toast(T('Traspaso copiado')); } else toast(T('No se pudo leer el traspaso'));
+    } }, T('Copiar')));
+  } else if (it.content) {
+    row.append(h('button', { class: 'btn primary small', onclick: () => { navigator.clipboard.writeText(it.content); toast(T('Traspaso copiado')); } }, T('Copiar traspaso')));
+  }
+  txt.append(row);
+  box.append(mini, txt);
   return box;
 }
 
@@ -875,15 +954,52 @@ function scrollToBottom(force) {
 }
 function stickToBottom() { if (stick) requestAnimationFrame(() => scrollToBottom()); }
 
+// ── Capu (la mascota) ─────────────────────────────────────────────────────────
+// One stage for the status line, kept alive across redraws so the animation never restarts;
+// the Director turns what the agent is doing into scenes and slips in a gag now and then.
+
+const CAPU_BOX = Capu.sceneBox(Object.keys(Capu.SCENES), 1);
+const capuEnabled = () => localStorage.getItem('deiza:capu') !== '0';
+const capu = { el: null, player: null, director: null, fails: 0, grace: false };
+function capuInit() {
+  if (capu.el) return;
+  capu.el = h('div', { class: 'capu', title: 'Capu' });
+  capu.player = new Capu.Player(capu.el, { px: 2, crop: CAPU_BOX });
+  capu.director = new Capu.Director(capu.player, { sleepAfter: 45000 });
+}
+function capuSet(state) {
+  capuInit();
+  if (capu.grace && state !== 'done' && state !== 'idle') state = 'grace';
+  capu.director.set(state);
+}
+function capuFromStatus(st) {
+  if (!st || st.kind === 'thinking') return 'thinking';
+  if (st.kind === 'approval') return 'idle';
+  const n = String(st.name || '');
+  if (n === 'run_command') return 'running';
+  if (/write|append|edit|move|delete/.test(n)) return 'writing';
+  if (/read|list|search|fetch|view|image/.test(n)) return 'reading';
+  return 'thinking';
+}
+
 // ── status line ───────────────────────────────────────────────────────────────
 
 function renderStatus() {
   const line = $('#statusline');
   line.innerHTML = '';
   clearInterval(S.statusTimer);
-  if (!S.cur || !S.cur.running) return;
+  const glow = !(S.cur && S.cur.running) && S.afterglow > Date.now();
+  $('#thread').classList.toggle('has-status', Boolean(S.cur && (S.cur.running || glow)));
+  if (!S.cur || (!S.cur.running && !glow)) return;
+  const withCapu = capuEnabled();
+  if (withCapu) capuInit();
+  if (glow) {
+    if (withCapu) line.append(h('div', { class: 'inner done' }, capu.el, h('span', { text: S.afterglowText || T('Hecho') })));
+    return;
+  }
   const st = S.status || { kind: 'thinking', text: 'Pensando', since: Date.now() };
-  const inner = h('div', { class: 'inner' }, DeizaRose(16, { loop: true }));
+  if (withCapu && !capu.grace) capuSet(capuFromStatus(st));
+  const inner = h('div', { class: `inner${withCapu ? '' : ' plain'}` }, withCapu ? capu.el : DeizaRose(16, { loop: true }));
   const label = h('span');
   const tick = () => {
     label.innerHTML = '';
@@ -910,12 +1026,30 @@ function renderComposer(hero) {
     rows: '1', spellcheck: 'true',
     placeholder: hero ? T('Describe lo que quieres construir o arreglar…') : (running ? T('Escribe el siguiente paso; se enviará cuando termine…') : T('Pide un cambio, un arreglo o una app entera…')),
   });
-  ta.value = S.drafts.get(S.cur ? S.cur.id : '_new') || '';
+  const draftKey = S.cur ? S.cur.id : (S.pendingFolder ? `_pending:${S.pendingFolder}` : '_new');
+  let initDraft = S.drafts.get(draftKey);
+  if (initDraft === undefined || initDraft === null) {
+    initDraft = S.drafts.get('_active_input');
+  }
+  if (!initDraft) {
+    try { initDraft = localStorage.getItem('deiza:code:draft') || ''; } catch {}
+  }
+  ta.value = initDraft || '';
   const atts = h('div', { class: 'atts' });
   const box = h('div', { class: 'composer' }, atts, ta);
 
   const fit = () => { ta.style.height = 'auto'; ta.style.height = `${Math.min(280, ta.scrollHeight)}px`; };
-  ta.addEventListener('input', () => { fit(); sendBtn.disabled = !canSend(); });
+  ta.addEventListener('input', () => {
+    fit();
+    sendBtn.disabled = !canSend();
+    const k = S.cur ? S.cur.id : (S.pendingFolder ? `_pending:${S.pendingFolder}` : '_new');
+    S.drafts.set(k, ta.value);
+    S.drafts.set('_active_input', ta.value);
+    try {
+      if (ta.value.trim()) localStorage.setItem('deiza:code:draft', ta.value);
+      else localStorage.removeItem('deiza:code:draft');
+    } catch {}
+  });
   setTimeout(fit, 0);
 
   const renderAtts = () => {
@@ -984,32 +1118,68 @@ function renderComposer(hero) {
   const submit = async () => {
     const text = ta.value.trim();
     if (!text && !S.images.length) return;
+    if (S.cur && S.cur.running) {
+      toast(T('Espera a que termine o detén la petición actual'));
+      return;
+    }
+
+    // Capture images and clear immediately from state and UI
+    const images = S.images.slice();
+    S.images = [];
+    renderAtts();
+    const curAtts = $('#composer-wrap .atts, .start .atts');
+    if (curAtts) { curAtts.innerHTML = ''; curAtts.classList.add('hidden'); }
+    if (picker) picker.value = '';
+
+    // Clear textarea and active drafts immediately so subsequent turns are clean
+    ta.value = '';
+    ta.style.height = 'auto';
+    const curTa = $('#composer-wrap textarea');
+    if (curTa) { curTa.value = ''; curTa.style.height = 'auto'; }
+    S.drafts.delete('_active_input');
+    S.drafts.delete('_new');
+    if (S.cur) S.drafts.delete(S.cur.id);
+    if (S.pendingFolder) S.drafts.delete(`_pending:${S.pendingFolder}`);
+    try { localStorage.removeItem('deiza:code:draft'); } catch {}
+
     let id = S.cur && S.cur.id;
     if (!id) {
       let f = S.pendingFolder;
       if (!f) f = await pickFolder();
-      if (!f) return;
+      if (!f) {
+        // User canceled folder picker: restore text and images
+        S.images = images;
+        renderAtts();
+        ta.value = text;
+        return;
+      }
       const meta = await deiza.code.create({ folder: f, mode: S.defaultMode, model: S.model, effort: S.effort });
-      if (!meta || meta.error) { toast(T('No se pudo abrir esa carpeta')); return; }
-      S.drafts.delete('_new');
+      if (!meta || meta.error) {
+        toast(T('No se pudo abrir esa carpeta'));
+        S.images = images;
+        renderAtts();
+        ta.value = text;
+        return;
+      }
       await openSession(meta.id);
       id = meta.id;
-    } else if (S.cur.running) {
-      toast(T('Espera a que termine o detén la petición actual'));
-      return;
     }
-    const images = S.images.slice();
-    if (images.length && modelInfo(S.cur.model).id === 'deiza-solid-4.6') toast(T('Solid 4.6 no ve imágenes: cambia a Liquid 5 o Gas 4.5 si importan.'), 4200);
+
+    if (images.length && modelInfo(S.cur.model).id === 'deiza-gas-4.5') toast(T('Gas no ve imágenes: cambia a Liquid 5.1 o Solid 5 si importan.'), 4200);
     const r = await deiza.code.send({ id, text, images, mode: S.cur.mode, model: S.cur.model, effort: S.cur.effort });
     if (r && r.error) {
       const msg = { auth: T('Inicia sesión en Deiza para usar Code'), busy: T('Ya hay una petición en curso'), folder: T('La carpeta del proyecto ya no existe'), empty: T('Escribe algo primero') }[r.error] || T('No se pudo enviar');
       toast(msg);
       return;
     }
+
+    // Safety clear of any residual image state
     S.images = [];
-    S.drafts.delete(id);
-    const cur = $('#composer-wrap textarea');
-    if (cur) { cur.value = ''; cur.style.height = 'auto'; }
+    renderAtts();
+    const finalAtts = $('#composer-wrap .atts, .start .atts');
+    if (finalAtts) { finalAtts.innerHTML = ''; finalAtts.classList.add('hidden'); }
+    if (picker) picker.value = '';
+
     S.cur.running = true;
     S.status = { kind: 'thinking', text: 'Pensando', since: Date.now() };
     stick = true;
@@ -1028,7 +1198,8 @@ function renderComposer(hero) {
 
   box.append(h('div', { class: 'bar' }, imgBtn, micBtn, picker, modes, h('div', { class: 'grow' }), renderModelPill(), folderBtn, sendBtn));
   const hint = h('div', { class: 'hint' },
-    h('span', { html: T('<kbd>Intro</kbd> enviar · <kbd>Mayús</kbd>+<kbd>Intro</kbd> salto de línea · <kbd>Esc</kbd> detener') }));
+    h('span', { html: T('<kbd>Intro</kbd> enviar · <kbd>Mayús</kbd>+<kbd>Intro</kbd> salto de línea · <kbd>Esc</kbd> detener') }),
+    h('div', { class: 'grow' }), ctxMeter());
   const frag = h('div', null, box, hero ? null : hint);
   box._ta = ta;
   box._refresh = () => {
@@ -1042,6 +1213,68 @@ function renderComposer(hero) {
   box._changed = () => { fit(); sendBtn.disabled = !(S.cur && S.cur.running) && !canSend(); };
   if (dict) dict.attach(box);
   return frag;
+}
+
+// ── context & quota ───────────────────────────────────────────────────────────
+
+const kTok = (n) => (n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
+function ctxMeter() {
+  const c = S.cur && S.cur.context;
+  const el = h('div', { class: 'ctx' });
+  if (!c || !c.limit) {
+    el.title = T('Contexto de la sesión: se mide en la primera respuesta.');
+    el.append(ctxRing(0), h('span', { text: T('Contexto') }));
+    return el;
+  }
+  const pct = Math.min(100, Math.round((c.used / c.limit) * 100));
+  el.classList.toggle('warm', pct >= 50);
+  el.classList.toggle('hot', pct >= 65);
+  el.title = T('Contexto: {u} de {l} tokens ({p} %). Deiza compacta la conversación sola al 70 %.', { u: num(c.used), l: num(c.limit), p: pct });
+  el.append(ctxRing(pct), h('span', { text: `${pct} % · ${kTok(c.used)} / ${kTok(c.limit)}` }));
+  return el;
+}
+function ctxRing(pct) {
+  const r = 6, c = 2 * Math.PI * r;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('class', 'ring');
+  svg.innerHTML = `<circle cx="8" cy="8" r="${r}" class="bg"/><circle cx="8" cy="8" r="${r}" class="fg" stroke-dasharray="${(c * pct / 100).toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 8 8)"/>`;
+  return svg;
+}
+function updateCtxMeter() {
+  const old = $('#composer-wrap .ctx');
+  if (old) old.replaceWith(ctxMeter());
+}
+
+/** Banner above the composer while the courtesy margin is in use, or once everything ran out. */
+function renderQuotaBanner() {
+  const us = S.usage;
+  if (!us || (us.state !== 'grace' && us.state !== 'exhausted')) return null;
+  const grace = us.state === 'grace';
+  const stage = h('div', { class: 'capu capu-mini' });
+  stage.innerHTML = Capu.toSVG(Capu.frameAt(grace ? 'wilt' : 'sleep', 0), { px: 1, crop: Capu.sceneBox([grace ? 'wilt' : 'sleep'], 1) });
+  const when = us.reset_in_seconds ? fmtDuration(us.reset_in_seconds * 1000) : '';
+  const left = grace && us.grace_limit ? Math.max(0, Math.round((us.grace_remaining / us.grace_limit) * 100)) : 0;
+  return h('div', { class: `quota-banner ${us.state}` }, stage,
+    h('div', { class: 'qb' },
+      h('div', { class: 'h', text: grace ? T('Límite alcanzado · margen de cortesía') : T('Sin uso hasta dentro de {t}', { t: when || T('unas horas') }) }),
+      h('p', { text: grace
+        ? T('Deiza termina lo que está haciendo, lo deja estable y escribe el traspaso en DEIZA_HANDOFF.md. Queda un {p} % del margen.', { p: left })
+        : T('Lo que quedó a medias está en DEIZA_HANDOFF.md: ábrelo aquí o pégaselo a la siguiente sesión.') })),
+    !grace && S.cur ? h('button', { class: 'btn ghost small', onclick: () => openFile('DEIZA_HANDOFF.md', 'rendered') }, T('Abrir traspaso')) : null);
+}
+function applyQuota(q) {
+  const prev = S.usage && S.usage.state;
+  S.usage = { ...(S.usage || {}), ...q };
+  if (q.state === 'grace') { capu.grace = true; if (capuEnabled()) capuSet('grace'); }
+  renderAccount();
+  if ((S.usage.state || '') !== (prev || '') && S.cur) {
+    const wrap = $('#composer-wrap');
+    const old = wrap && wrap.querySelector('.quota-banner');
+    const b = renderQuotaBanner();
+    if (old) old.remove();
+    if (b && wrap) wrap.prepend(b);
+  }
 }
 
 // ── model & effort picker ─────────────────────────────────────────────────────
@@ -1743,6 +1976,7 @@ function initResizer() {
 // ── events from the main process ──────────────────────────────────────────────
 
 function onCodeEvent({ id, seq, ev }) {
+  if (ev && ev.t === 'quota') { applyQuota(ev); return; }
   if (!S.cur || S.cur.id !== id) {
     if (ev.t === 'turn_end') refreshSessions();
     return;
@@ -1755,6 +1989,14 @@ function onCodeEvent({ id, seq, ev }) {
     renderStatus();
     return;
   }
+  if (ev.t === 'context') { S.cur.context = { used: ev.used, limit: ev.limit, model: ev.model, estimated: ev.estimated }; updateCtxMeter(); return; }
+  if (capuEnabled()) {
+    if (ev.t === 'text') { if (!capu.grace) capuSet('writing'); }
+    if (ev.t === 'error') capuSet(ev.code === 'usage' ? 'exhausted' : 'error');
+    if (ev.t === 'tool_end') {
+      if (ev.status === 'error') { capu.fails++; capuSet(capu.fails >= 3 ? 'debugging' : 'error'); } else if (ev.status === 'ok') capu.fails = 0;
+    }
+  }
   const changed = DeizaTranscript.apply(S.cur.items, ev);
   if (ev.t === 'user') {
     S.cur.running = true;
@@ -1764,7 +2006,17 @@ function onCodeEvent({ id, seq, ev }) {
     return;
   }
   if (ev.t === 'turn_end' || ev.t === 'reverted') {
-    if (ev.t === 'turn_end') { S.cur.running = false; S.status = null; }
+    saveDraft();
+    if (ev.t === 'turn_end') {
+      S.cur.running = false; S.status = null;
+      const ok = ev.stopReason === 'done';
+      S.afterglow = Date.now() + (ok ? 2600 : 0);
+      S.afterglowText = ok ? T('Hecho') : '';
+      capu.fails = 0;
+      if (capuEnabled()) { if (ok) capuSet('done'); else capuSet('idle'); }
+      capu.grace = false;
+      if (ok) setTimeout(() => { if (S.cur && !S.cur.running) renderStatus(); }, 2700);
+    }
     const keep = $('#scroller').scrollTop;
     renderThread();
     if (stick) scrollToBottom(true); else $('#scroller').scrollTop = keep;

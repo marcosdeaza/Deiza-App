@@ -296,10 +296,9 @@ async function streamCompletion({ apiBase, apiKey, model, messages, tools, onChu
 /**
  * Executes streamCompletion with automatic retry on transient connection drops or 502/503/504 errors
  */
-async function streamCompletionWithRetry(params, maxRetries = 5) {
-  // Transient: dropped or refused connections (a server restart cuts streams with "aborted"),
-  // gateway errors and the engine's own "interrumpida" notices. Backoff covers ~40 s in total.
-  const delays = [2000, 4000, 7000, 10000, 15000];
+async function streamCompletionWithRetry(params, maxRetries = 10) {
+  // Resilient multi-minute backoff: keeps autonomous overnight runs alive across transient 429/503/drops
+  const delays = [2000, 3000, 5000, 8000, 12000, 15000, 20000, 25000, 30000, 30000];
   let lastErr;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {

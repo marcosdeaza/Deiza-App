@@ -36,20 +36,20 @@ const post = (ev) => { try { port.postMessage(ev); } catch { /* app went away */
 const MAX_FAILED_ROUNDS = 4;
 // Real context windows of the Code engines (tokens). The vendored CLI modules assume 1M, which made
 // long sessions fail on every request; compaction starts at 70 % of the real window.
-const CONTEXT_LIMITS = { 'deiza-omniscient': 262144, 'deiza-solid-4.6': 202752, 'deiza-gas-4.5': 262144 };
+const CONTEXT_LIMITS = { 'deiza-omniscient': 262144, 'deiza-solid-5': 262144, 'deiza-gas-4.5': 131072 };
 const contextLimit = (model) => CONTEXT_LIMITS[model] || 262144;
 const MAX_TOKENS = 32768;
 
 // Models the Code picker offers. All of them call tools; `effort` = honours reasoning_effort,
 // `vision` = accepts images.
 const MODELS = {
-  'deiza-omniscient': { effort: true, vision: true },   // shown as Liquid 5
-  'deiza-solid-4.6': { effort: true, vision: false },
-  'deiza-gas-4.5': { effort: false, vision: true },
+  'deiza-omniscient': { effort: true, vision: true },   // shown as Liquid 5.1
+  'deiza-solid-5': { effort: true, vision: true },
+  'deiza-gas-4.5': { effort: false, vision: false },
 };
 const DEFAULT_MODEL = 'deiza-omniscient';
 // Sessions saved by earlier versions keep working under the new names.
-const MODEL_ALIASES = { 'deiza-solid-4.5': 'deiza-solid-4.6', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient' };
+const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid-5.1': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
 const normModel = (m) => (MODELS[m] ? m : MODEL_ALIASES[m] || DEFAULT_MODEL);
 
 // Effort levels: how hard the model reasons (when it can) and how far the agent is allowed to go.
@@ -206,6 +206,15 @@ function stripImages(messages) {
 
 // ── streaming client (session-token auth against deiza.org) ───────────────────
 
+let lastLimitMessage = '';
+
+/** `: deiza-usage {...}` comment lines carry the live quota state (see backend usage v2). */
+function parseQuotaComment(line) {
+  const m = /^:\s*deiza-usage\s+(\{.*\})\s*$/.exec(line);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+
 function describeError(status, body) {
   try {
     const parsed = JSON.parse(body);
@@ -213,14 +222,14 @@ function describeError(status, body) {
     const detail = typeof err === 'string' ? err : (err?.message || parsed.message || '');
     if (detail === 'plan_required' || err?.type === 'plan_required') return 'PLAN_REQUIRED';
     if (detail === 'model_sublimit') return 'MODEL_LIMIT';
-    if (detail === 'usage_limit') return 'USAGE_LIMIT';
+    if (detail === 'usage_limit') { lastLimitMessage = String(parsed.message || ''); return 'USAGE_LIMIT'; }
     return `Error del motor (${status})${detail ? `: ${detail}` : ''}`;
   } catch {
     return `Error del motor (${status})`;
   }
 }
 
-function streamCompletion(auth, { model = DEFAULT_MODEL, effort, messages, tools, onChunk, onReasoning, onToolProgress, maxTokens = MAX_TOKENS, signal }) {
+function streamCompletion(auth, { model = DEFAULT_MODEL, effort, messages, tools, onChunk, onReasoning, onToolProgress, onQuota, maxTokens = MAX_TOKENS, signal }) {
   return new Promise((resolve, reject) => {
     const url = new URL(`${auth.origin}/api/code/chat/completions`);
     const client = url.protocol === 'https:' ? https : http;
@@ -267,6 +276,7 @@ function streamCompletion(auth, { model = DEFAULT_MODEL, effort, messages, tools
         });
         return;
       }
+      if (onQuota && String(res.headers['x-deiza-usage-state'] || '') === 'grace') onQuota({ state: 'grace' });
       let buffer = '';
       let text = '';
       let finishReason = null;
@@ -306,6 +316,7 @@ function streamCompletion(auth, { model = DEFAULT_MODEL, effort, messages, tools
         try {
           for (const line of lines) {
             const t = line.trim();
+            if (t.startsWith(':') && onQuota) { const q = parseQuotaComment(t); if (q) onQuota(q); continue; }
             if (!t || t.startsWith(':') || t.startsWith('event:')) continue;
             handle(t.startsWith('data:') ? t.slice(5).trim() : t);
           }
@@ -334,14 +345,13 @@ function streamCompletion(auth, { model = DEFAULT_MODEL, effort, messages, tools
 }
 
 async function streamWithRetry(auth, params) {
-  // Transient: dropped or refused connections (a server restart cuts streams with "aborted"),
-  // gateway errors and the engine's "interrumpida" notices. Backoff covers ~40 s in total.
-  const delays = [2000, 4000, 7000, 10000, 15000];
+  // Resilient multi-minute backoff: keeps autonomous overnight runs alive across transient 429/503/drops
+  const delays = [2000, 3000, 5000, 8000, 12000, 15000, 20000, 25000, 30000, 30000, 30000, 30000];
   let last;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
       if (attempt) {
-        post({ t: 'status', text: `Reconectando con el motor (${attempt}/${delays.length})…` });
+        post({ t: 'status', text: `Reconectando con el motor (${attempt}/${delays.length})…`, kind: 'thinking' });
         await new Promise(r => setTimeout(r, delays[attempt - 1]));
       }
       return await streamCompletion(auth, params);
@@ -349,7 +359,7 @@ async function streamWithRetry(auth, params) {
       last = err;
       const msg = String(err.message || '');
       if (params.signal?.aborted || ['ABORTED', 'AUTH_EXPIRED', 'PLAN_REQUIRED', 'USAGE_LIMIT', 'MODEL_LIMIT'].includes(msg)) throw err;
-      const transient = /timeout|tiempo|cerró antes|interrumpid|aborted|econnreset|econnrefused|epipe|reset|socket|upstream|502|503|504|conexión/i.test(msg)
+      const transient = /timeout|tiempo|cerró antes|interrumpid|aborted|econnreset|econnrefused|epipe|reset|socket|upstream|502|503|504|conexión|solicitado/i.test(msg)
         || /ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN/.test(String(err.code || ''))
         || (err.status >= 500);
       if (!transient) throw err;
@@ -465,7 +475,16 @@ async function run(msg) {
   current = { abort, approvals };
   alwaysApprove = false;
   const startedAt = Date.now();
-  const stats = { tools: 0, files: new Set(), commands: 0, prompt: 0, completion: 0, rounds: 0 };
+  const stats = { tools: 0, files: new Set(), commands: 0, prompt: 0, completion: 0, rounds: 0, cmds: [] };
+  let grace = false;
+  const onQuota = (q) => {
+    if (!q || typeof q !== 'object') return;
+    if (q.state === 'grace' && !grace) {
+      grace = true;
+      post({ t: 'notice', kind: 'grace', text: 'Has llegado al límite de uso. Deiza termina lo que estaba haciendo con un margen de cortesía y deja el traspaso en DEIZA_HANDOFF.md.' });
+    }
+    post({ t: 'quota', ...q });
+  };
   const snapshots = new Map();   // rel path -> { path, existed, content|null }
   let stopReason = 'done';
 
@@ -536,6 +555,7 @@ async function run(msg) {
         tools: TOOL_SPECS,
         maxTokens: E.maxTokens,
         signal: abort.signal,
+        onQuota,
         onReasoning: (delta) => {
           if (!thinking) { thinking = true; post({ t: 'status', text: 'Razonando', kind: 'thinking' }); }
           thinkBuf += delta;
@@ -557,6 +577,10 @@ async function run(msg) {
       if (textOpen) post({ t: 'text_end' });
 
       const assistantText = result.text || '';
+      {
+        const used = Number(result.usage?.prompt_tokens || 0) + Number(result.usage?.completion_tokens || 0);
+        post({ t: 'context', used: used || getActiveContextTokens(messages), limit: contextLimit(model), model, estimated: !used });
+      }
       stats.prompt += Number(result.usage?.prompt_tokens || Math.ceil(JSON.stringify(messages).length / 3.8));
       stats.completion += Number(result.usage?.completion_tokens || Math.ceil((assistantText.length + result.toolCalls.reduce((n, c) => n + c.arguments.length, 0)) / 3.8));
 
@@ -665,6 +689,7 @@ async function run(msg) {
         try {
           if (call.name === 'run_command') {
             stats.commands++;
+            if (stats.cmds.length < 30) stats.cmds.push(String(a.command || '').slice(0, 200));
             res = await runCommandLive(a, { signal: abort.signal, onOutput: (chunk) => post({ t: 'tool_output', id: call.id, chunk }) });
           } else {
             res = await fn(a, {
@@ -699,10 +724,15 @@ async function run(msg) {
     else {
       stopReason = 'error';
       const code = m === 'AUTH_EXPIRED' ? 'auth' : m === 'PLAN_REQUIRED' ? 'plan' : m === 'USAGE_LIMIT' ? 'usage' : m === 'MODEL_LIMIT' ? 'model_limit' : 'engine';
-      post({ t: 'error', code, message: code === 'engine' ? m : code === 'model_limit' ? model : '' });
+      post({ t: 'error', code, message: code === 'engine' ? m : code === 'model_limit' ? model : code === 'usage' ? lastLimitMessage : '' });
+      if (code === 'usage' && (stats.files.size || stats.rounds > 1)) grace = true;
       // Keep the history consistent: drop an assistant tool_calls message without all its results.
       repairHistory(messages);
     }
+  }
+
+  if (grace) {
+    try { ensureHandoff({ startedAt, input, stats, messages, mode }); } catch (err) { post({ t: 'notice', text: `No se pudo guardar el traspaso: ${err.message}` }); }
   }
 
   const changed = [...snapshots.values()];
@@ -714,6 +744,61 @@ async function run(msg) {
     revertible: changed.some(f => f.revertible),
   });
   current = null;
+}
+
+/**
+ * Courtesy margin: the agent is told (server side) to leave DEIZA_HANDOFF.md. If it did not manage
+ * to (the margin ran out, Plan mode, a cut connection), the app writes one from the session so the
+ * next session, or another tool, can pick the work up.
+ */
+function ensureHandoff({ startedAt, input, stats, messages, mode }) {
+  const file = path.join(process.cwd(), 'DEIZA_HANDOFF.md');
+  let st = null;
+  try { st = fs.statSync(file); } catch { st = null; }
+  if (st && st.mtimeMs >= startedAt - 1000) {
+    post({ t: 'handoff', path: 'DEIZA_HANDOFF.md', by: 'agent' });
+    return;
+  }
+  const lastText = [...messages].reverse().find(m => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim());
+  const firstAsk = (() => {
+    const users = messages.filter(m => m.role === 'user' && typeof m.content === 'string' && !/^(Continúa|Has anunciado|Tu respuesta se cortó)/.test(m.content));
+    return users.length ? users[users.length - 1].content : input;
+  })();
+  const date = new Date().toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' });
+  const files = [...stats.files];
+  const md = [
+    '# Traspaso de Deiza Code',
+    '',
+    `Sesión cortada por el límite de uso el ${date}. Este resumen lo ha escrito la app a partir de la sesión porque el agente no llegó a dejar el suyo.`,
+    '',
+    '## Objetivo',
+    String(firstAsk || input || '').trim().slice(0, 2000) || '(sin descripción)',
+    '',
+    '## Cambios hechos en la última petición',
+    files.length ? files.map(f => `- ${f}`).join('\n') : '- Ningún archivo modificado.',
+    '',
+    ...(stats.cmds.length ? ['## Comandos ejecutados', stats.cmds.map(c => `- \`${c.replace(/`/g, "'")}\``).join('\n'), ''] : []),
+    '## Última respuesta del agente',
+    lastText ? String(lastText.content).trim().slice(0, 3000) : '(sin texto)',
+    '',
+    '## Pendiente',
+    '- [ ] Revisar que los archivos listados arriba están completos y funcionan.',
+    '- [ ] Terminar lo que pedía el objetivo.',
+    '',
+    '## Cómo continuar',
+    'Abre una sesión nueva en esta carpeta y pega:',
+    '',
+    '```text',
+    'Continúa el trabajo descrito en DEIZA_HANDOFF.md. Revisa primero el estado de los archivos que lista, termina lo pendiente y actualiza el traspaso al acabar.',
+    '```',
+    '',
+  ].join('\n');
+  if (mode === 'plan') {
+    post({ t: 'handoff', path: '', by: 'app', content: md });
+    return;
+  }
+  fs.writeFileSync(file, md, 'utf8');
+  post({ t: 'handoff', path: 'DEIZA_HANDOFF.md', by: 'app' });
 }
 
 /** An interrupted round can leave tool_calls without their tool results; the engine rejects that. */

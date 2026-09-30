@@ -9,7 +9,8 @@
  *   { k:'tool', id, name, target, path, status, summary, detail, ms, output }
  *   { k:'plan', id, steps }
  *   { k:'approval', id, name, target, path, diff, command, risky, outside, state }
- *   { k:'notice', id, text }
+ *   { k:'notice', id, text, kind }
+ *   { k:'handoff', id, path, by, content }   DEIZA_HANDOFF.md left when the usage ran out
  *   { k:'error', id, code, message }
  *   { k:'turn', id, stopReason, elapsedMs, stats, revertible, reverted }
  */
@@ -130,7 +131,7 @@
       }
       case 'notice': {
         closeThink(items);
-        const it = { k: 'notice', id: uid('n'), text: ev.text };
+        const it = { k: 'notice', id: uid('n'), text: ev.text, kind: ev.kind || '' };
         items.push(it);
         return it;
       }
@@ -147,6 +148,12 @@
         for (const it of items) if (it.k === 'approval' && it.state === 'pending') it.state = 'rejected';
         for (const it of items) if (it.k === 'turn') it.revertible = false;
         const it = { k: 'turn', id: ev.turnId || uid('turn'), stopReason: ev.stopReason, elapsedMs: ev.elapsedMs || 0, stats: ev.stats || {}, revertible: Boolean(ev.revertible), reverted: false };
+        items.push(it);
+        return it;
+      }
+      case 'handoff': {
+        closeText(items);
+        const it = { k: 'handoff', id: uid('h'), path: ev.path || '', by: ev.by || 'agent', content: ev.content || '' };
         items.push(it);
         return it;
       }

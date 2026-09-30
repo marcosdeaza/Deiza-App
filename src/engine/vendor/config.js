@@ -3,10 +3,10 @@
  * Storage in ~/.deiza/config.json plus DEIZA_* environment overrides.
  *
  * Native models (context window in tokens):
- *   - deiza-liquid:   Liquid 5   (default, balanced and agentic, 256K)
- *   - deiza-solid:    Solid 4.6  (deep reasoning and architecture, 198K)
- *   - deiza-gas:      Gas 4.5    (fastest, reads images, 256K)
- *   - deiza-vainilla: Vainilla   (conversational, no tools, 128K)
+ *   - deiza-liquid:   Liquid 5.1 (default, balanced and agentic, 256K)
+ *   - deiza-solid:    Solid 5    (the most capable: methodical, coding and research, reads images, 256K)
+ *   - deiza-gas:      Gas 4.5    (fastest and lightest, 128K)
+ * Vainilla was retired in 2.2.0; saved configs that still name it open Gas.
  *
  * Two different URLs live in the config:
  *   - accountBase: the Deiza account server (login, plan, usage). Always deiza.org.
@@ -22,11 +22,11 @@ const DEIZA_DIR = path.join(os.homedir(), '.deiza');
 const CONFIG_FILE = path.join(DEIZA_DIR, 'config.json');
 const SESSIONS_DIR = path.join(DEIZA_DIR, 'sessions');
 
-const VERSION = '2.1.4';
+const VERSION = '2.2.1';
 const DEFAULT_DEIZA_API = 'https://deiza.org';
 const DEFAULT_MODEL = 'deiza-liquid';
 
-const NATIVE_MODELS = ['deiza-liquid', 'deiza-solid', 'deiza-gas', 'deiza-vainilla'];
+const NATIVE_MODELS = ['deiza-liquid', 'deiza-solid', 'deiza-gas'];
 
 const MODEL_ALIASES = {
   'liquid': 'deiza-liquid',
@@ -37,20 +37,26 @@ const MODEL_ALIASES = {
   '1': 'deiza-liquid',
 
   'solid': 'deiza-solid',
+  'solid-5': 'deiza-solid',
+  'solid5': 'deiza-solid',
+  'solid-4.6': 'deiza-solid',
   'solid-4.5': 'deiza-solid',
   'solid45': 'deiza-solid',
   '4.5': 'deiza-solid',
   '2': 'deiza-solid',
 
   'gas': 'deiza-gas',
+  'gas-4.5': 'deiza-gas',
   'gas-4.1': 'deiza-gas',
   'gas41': 'deiza-gas',
   '4.1': 'deiza-gas',
   '3': 'deiza-gas',
 
-  'vainilla': 'deiza-vainilla',
-  'vanilla': 'deiza-vainilla',
-  '4': 'deiza-vainilla',
+  // Vainilla was retired: its names now open Gas
+  'vainilla': 'deiza-gas',
+  'vanilla': 'deiza-gas',
+  'deiza-vainilla': 'deiza-gas',
+  '4': 'deiza-gas',
 
   'omniscient': 'deiza-liquid',
   'deiza-omniscient': 'deiza-liquid',
@@ -61,9 +67,9 @@ const MODEL_INFO = {
   'deiza-liquid': {
     id: 'deiza-liquid',
     shortName: 'liquid',
-    name: 'Deiza Liquid 5',
-    badge: 'Liquid 5 · 256K tokens',
-    tag: 'LIQUID 5',
+    name: 'Deiza Liquid 5.1',
+    badge: 'Liquid 5.1 · 256K tokens',
+    tag: 'LIQUID 5.1',
     desc: 'Motor principal autónomo. Ventana de 256K tokens, alta velocidad y diffs limpios.',
     tier: 'Equilibrado',
     speed: 'Rápido',
@@ -72,10 +78,10 @@ const MODEL_INFO = {
   'deiza-solid': {
     id: 'deiza-solid',
     shortName: 'solid',
-    name: 'Deiza Solid 4.6',
-    badge: 'Solid 4.6 · Razonamiento profundo',
-    tag: 'SOLID 4.6',
-    desc: 'Máximo razonamiento y lógica profunda. Ideal para arquitectura, seguridad y depuración.',
+    name: 'Deiza Solid 5',
+    badge: 'Solid 5 · El más capaz',
+    tag: 'SOLID 5',
+    desc: 'El más capaz y metódico. Planifica antes de tocar el código y verifica cada paso: arquitectura, refactorizaciones grandes, depuración difícil e investigación.',
     tier: 'Razonamiento',
     speed: 'Analítico',
     default: false,
@@ -86,31 +92,20 @@ const MODEL_INFO = {
     name: 'Deiza Gas 4.5',
     badge: 'Gas 4.5 · Ultra-rápido',
     tag: 'GAS 4.5',
-    desc: 'Velocidad ultra-rápida y soporte multimodal nativo. Para iteraciones y scripts ágiles.',
+    desc: 'El más rápido y ligero. Para cambios pequeños, scripts e iteraciones ágiles.',
     tier: 'Velocidad',
     speed: 'Ultra-rápido',
     default: false,
   },
-  'deiza-vainilla': {
-    id: 'deiza-vainilla',
-    shortName: 'vainilla',
-    name: 'Deiza Vainilla',
-    badge: 'Vainilla · Ligero & Ilimitado',
-    tag: 'VAINILLA',
-    desc: 'Modelo suave, ultra-rápido y conversacional. Siempre disponible y sin consumo de cuota.',
-    tier: 'Ilimitado',
-    speed: 'Instantáneo',
-    default: false,
-  },
+
 };
 
 // Real context windows (tokens) of the native engines. Compaction starts at 70 % of the window of
 // the model in use; custom endpoints get a conservative 128K.
 const CONTEXT_LIMITS = {
   'deiza-liquid': 262144,
-  'deiza-solid': 202752,
-  'deiza-gas': 262144,
-  'deiza-vainilla': 131072,
+  'deiza-solid': 262144,
+  'deiza-gas': 131072,
 };
 function contextLimit(model) {
   return CONTEXT_LIMITS[model] || (model && String(model).startsWith('deiza') ? 262144 : 131072);

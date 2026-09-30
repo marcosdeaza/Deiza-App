@@ -29,8 +29,8 @@ const LANG_BY_EXT = {
   '.env': 'ini', '.ps1': 'powershell', '.lua': 'lua', '.dart': 'dart', '.diff': 'diff', '.txt': 'plaintext',
 };
 
-const MODELS = ['deiza-omniscient', 'deiza-solid-4.6', 'deiza-gas-4.5'];
-const MODEL_ALIASES = { 'deiza-solid-4.5': 'deiza-solid-4.6', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient' };
+const MODELS = ['deiza-omniscient', 'deiza-solid-5', 'deiza-gas-4.5'];
+const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid-5.1': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
 const EFFORTS = ['low', 'medium', 'high', 'ultra', 'max'];
 const MODES = ['build', 'copilot', 'plan'];
 const SKILLS_TTL_MS = 60 * 1000;
@@ -195,6 +195,8 @@ function onWorkerEvent(id, ev) {
   if (!doc) return;
   if (ev.t === 'ready') return;
   if (ev.t === 'history') { doc.messages = ev.messages; scheduleSave(id); return; }
+  if (ev.t === 'context') { doc.context = { used: ev.used, limit: ev.limit, model: ev.model, estimated: Boolean(ev.estimated) }; }
+  if (ev.t === 'quota') { ctx?.send('code:event', { id, seq: 0, ev }); return; }
   if (ev.t === 'snapshot') {
     try { writeJson(snapshotFile(id, ev.turnId), { turnId: ev.turnId, files: ev.files }); } catch (err) { console.error('snapshot:', err.message); }
     return;
@@ -498,7 +500,7 @@ function setupIpc(c) {
     const doc = loadDoc(id);
     if (!doc) return null;
     prefs.set('lastSession', id);
-    return { ...meta(doc), branch: gitBranch(doc.folder), items: doc.items, seq: doc.seq || 0 };
+    return { ...meta(doc), branch: gitBranch(doc.folder), items: doc.items, seq: doc.seq || 0, context: doc.context || null };
   });
   handle('code:create', ({ folder, mode, model, effort } = {}) => {
     if (!folder || !fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) return { error: 'folder' };

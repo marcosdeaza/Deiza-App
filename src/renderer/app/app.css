@@ -611,7 +611,7 @@ body.signed-out #titlebar { background: transparent; border-bottom-color: transp
 .upd-available, .upd-ready { border-color: hsl(var(--upd) / .45); background: hsl(var(--upd) / .09); }
 .upd-available:hover, .upd-ready:hover { background: hsl(var(--upd) / .16); }
 .upd-error { border-color: hsl(var(--del-ink) / .45); color: hsl(var(--del-ink)); }
-.upd-light { width: 8px; height: 8px; border-radius: 50%; flex: none; background: hsl(var(--upd)); animation: upd-glow 2.4s ease-in-out infinite; }
+.upd-light { width: 8px; height: 8px; border-radius: 50%; flex: none; background: hsl(var(--upd)); animation: upd-glow 2.4s ease-in-out 4; }
 .upd-error .upd-light { background: hsl(var(--del-ink)); animation: none; }
 @keyframes upd-glow { 0%, 100% { box-shadow: 0 0 3px 0 hsl(var(--upd) / .7); } 50% { box-shadow: 0 0 10px 3px hsl(var(--upd) / .45); } }
 .upd-ring { width: 13px; height: 13px; border-radius: 50%; flex: none; background: conic-gradient(hsl(var(--upd)) calc(var(--p) * 1%), hsl(var(--fg) / .15) 0); -webkit-mask: radial-gradient(circle, transparent 3.5px, #000 4px); mask: radial-gradient(circle, transparent 3.5px, #000 4px); }
@@ -695,11 +695,11 @@ img.avatar { object-fit: cover; padding: 0; }
 .eff-level.omni, .model-pill .mp-eff.omni {
   background: linear-gradient(100deg, hsl(var(--rose)) 0%, hsl(var(--rose)) 38%, hsl(30 60% 92%) 50%, hsl(var(--rose)) 62%, hsl(var(--rose)) 100%);
   background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
-  animation: omni-text 3.2s linear infinite;
+  animation: omni-text 3.2s linear 3;   /* a few sweeps, then still: an endless one repaints every frame */
 }
 @keyframes omni-text { from { background-position: 130% 0; } to { background-position: -130% 0; } }
 .eff.omni .eff-track { border-color: hsl(var(--rose) / .45); box-shadow: 0 0 0 1px hsl(var(--rose) / .12), 0 0 26px -6px hsl(var(--rose) / .55); transition: border-color .4s, box-shadow .4s; }
-.eff.omni .eff-knob { animation: omni-knob 2.6s ease-in-out infinite; }
+.eff.omni .eff-knob { animation: omni-knob 2.6s ease-in-out 3; }
 @keyframes omni-knob {
   0%, 100% { box-shadow: 0 1px 3px rgb(0 0 0 / .45), 0 0 14px hsl(var(--rose) / .55), 0 0 0 0 hsl(var(--rose) / 0); }
   50% { box-shadow: 0 1px 3px rgb(0 0 0 / .45), 0 0 26px hsl(var(--rose) / .85), 0 0 0 4px hsl(var(--rose) / .14); }
@@ -709,9 +709,47 @@ img.avatar { object-fit: cover; padding: 0; }
 @keyframes omni-ring { 0% { opacity: .95; transform: scale(.9); } 100% { opacity: 0; transform: scale(2.1); } }
 .eff.burst .eff-track { animation: omni-flash .9s ease-out; }
 @keyframes omni-flash { 0% { box-shadow: 0 0 0 1px hsl(var(--rose) / .6), 0 0 40px hsl(var(--rose) / .7); } 100% { box-shadow: 0 0 0 1px hsl(var(--rose) / .12), 0 0 26px -6px hsl(var(--rose) / .55); } }
-.eff.burst .eff-level.omni { animation: omni-text 3.2s linear infinite, omni-rise .5s cubic-bezier(.2, .9, .3, 1.2); }
+.eff.burst .eff-level.omni { animation: omni-text 3.2s linear 3, omni-rise .5s cubic-bezier(.2, .9, .3, 1.2); }
 @keyframes omni-rise { from { opacity: 0; transform: translateY(4px); letter-spacing: .08em; } }
 .eff-level { display: inline-block; }
 @media (prefers-reduced-motion: reduce) {
   .eff-level.omni, .model-pill .mp-eff.omni { animation: none; background: none; color: hsl(var(--rose)); }
 }
+
+/* ── Capu, la mascota de Deiza Code ─────────────────────────────────────────── */
+.capu { flex: none; line-height: 0; }
+.capu svg { display: block; image-rendering: pixelated; }
+#statusline .inner { bottom: 4px; }
+#statusline .inner .capu { margin: 0 -14px 0 -10px; }
+#statusline .inner.done span { color: hsl(var(--add-ink)); }
+#thread.has-status #transcript { padding-bottom: 84px; }
+.start .greet .capu-hero { margin-bottom: -4px; }
+.capu-mini { opacity: .95; }
+
+/* context meter (next to the keyboard hints) */
+.hint .grow { flex: 1; }
+.ctx { display: inline-flex; align-items: center; gap: 6px; font: 11px var(--mono); color: hsl(var(--faint)); cursor: default; white-space: nowrap; }
+.ctx .ring { width: 14px; height: 14px; flex: none; }
+.ctx .ring circle { fill: none; stroke-width: 2.2; }
+.ctx .ring .bg { stroke: hsl(var(--fg) / .12); }
+.ctx .ring .fg { stroke: hsl(var(--ochre)); stroke-linecap: round; transition: stroke-dasharray .5s; }
+.ctx.warm { color: hsl(var(--muted-fg)); }
+.ctx.hot .ring .fg { stroke: hsl(var(--primary)); }
+
+/* courtesy margin banner and handoff card */
+.quota-banner {
+  max-width: 744px; margin: 0 auto 10px; display: flex; align-items: center; gap: 14px; padding: 10px 14px;
+  border-radius: 14px; border: 1px solid hsl(var(--ochre) / .45); background: hsl(var(--ochre) / .09);
+}
+.quota-banner.exhausted { border-color: hsl(var(--border) / .7); background: hsl(var(--muted) / .6); }
+.quota-banner .qb { flex: 1; min-width: 0; }
+.quota-banner .h { font: 500 14.5px var(--serif); color: hsl(var(--fg)); }
+.quota-banner p { margin: 2px 0 0; font-size: 12.5px; color: hsl(var(--muted-fg)); line-height: 1.45; }
+.handoff { display: flex; gap: 14px; align-items: center; padding: 12px 14px; border-radius: var(--radius); border: 1px solid hsl(var(--ochre) / .4); background: hsl(var(--ochre) / .07); }
+.handoff .hb { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.handoff .h { font: 500 15px var(--serif); }
+.handoff p { margin: 0; font-size: 13px; color: hsl(var(--muted-fg)); }
+.handoff .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.notice.grace { color: hsl(var(--ochre)); }
+.meter.grace .row span:last-child, .meter.exhausted .row span:last-child { color: hsl(var(--ochre)); }
+.meter.grace .fill { background: hsl(var(--ochre)); }

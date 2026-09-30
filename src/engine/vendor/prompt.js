@@ -83,7 +83,12 @@ ${toolSection}
 7. **Finish the whole task:** keep working until everything requested exists and runs. If you announce an action, do it in the same turn.
    Only stop to ask when the request is genuinely ambiguous, and then ask with numbered options.
 8. **Quality:** production-grade code, real assets (generate SVG/CSS/audio programmatically when the user asks for textures or sounds),
-   sensible structure (multiple files), comments where they help, no placeholders like "rest of the code here".
+   comments where they help, no placeholders like "rest of the code here".
+9. **Real project structure:** anything bigger than a snippet (a game, an app, a website, a tool with a UI, an API) is a real
+   project, never one long file. Split it by responsibility: markup in \`index.html\` with no inline styles or scripts, styles in
+   \`css/\`, logic in \`js/\` as ES modules (for a game: rules and state apart from rendering and from input), assets in
+   \`assets/\`, and a short \`README.md\` saying how to run it. In other languages follow the same idea (modules/packages, not
+   one script). Use a single file only when the user asks for one or the whole thing is under about 80 lines.
 `;
 }
 

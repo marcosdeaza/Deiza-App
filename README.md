@@ -19,6 +19,16 @@ El workspace de Deiza y Deiza Code en una sola app para macOS, Windows y Linux.
 
 <p align="center"><img src="docs/screenshots/picker.png" width="360" alt="Selector de modelo y esfuerzo"></p>
 
+## Capu
+
+<p align="center"><img src="docs/capu/capu-animated.svg" width="300" alt="Capu, la mascota de Deiza Code"></p>
+
+Capu es la mascota de Deiza Code: un capullo de rosa hecho bloque, con el pétalo izquierdo más alto y dos ojos que son huecos. Vive junto a la línea de estado mientras el agente trabaja y cambia de escena según lo que pasa: teclea en un portátil lleno de pegatinas cuando escribe, mira arriba cuando piensa, lee con lupa, espera con la barra de progreso mientras corre un comando, le cuenta el bug al pato de goma cuando algo falla tres veces y florece cuando la tarea termina. De vez en cuando se toma un café o se echa una lata por el hueco de los pétalos. Si se acaba el uso, se mustia y se pone a escribir el traspaso. Se apaga en Ajustes, Code.
+
+![Capu tecleando mientras Deiza Code escribe un archivo](docs/screenshots/code-capu.png)
+
+El motor de animación es un solo archivo sin dependencias (`src/renderer/capu.js`): la silueta base de 8×10 para logos y terminal y las escenas a doble resolución, con los props dibujados a píxel fino. Ficha del personaje: [docs/capu/capu-sheet.png](docs/capu/capu-sheet.png).
+
 ## Qué hace
 
 **Chat**
@@ -30,9 +40,12 @@ El workspace de Deiza y Deiza Code en una sola app para macOS, Windows y Linux.
 - Agente local que lee, escribe y ejecuta en la carpeta del proyecto, con tres modos: **Build** (autónomo), **Copilot** (apruebas cada cambio y comando) y **Plan** (solo lee y propone).
 - Tarjetas por herramienta: diffs con líneas añadidas y quitadas, salida de terminal en directo, "Revertir cambios" por respuesta.
 - Panel lateral con el árbol del proyecto, los cambios de la sesión y vista previa de archivos y páginas HTML.
-- Modelo (Liquid 5, Solid 4.6, Gas 4.5) y esfuerzo en cinco niveles, de Bajo a Omnisciente, con el razonamiento del modelo visible y plegable.
+- Modelo (Liquid 5.1, Solid 5, Gas 4.5) y esfuerzo en cinco niveles, de Bajo a Omnisciente, con el razonamiento del modelo visible y plegable.
 - Dictado por voz, imágenes en el mensaje y tus skills de Deiza aplicadas también al agente.
-- La conversación se ajusta sola a la ventana de contexto real de cada modelo.
+- La conversación se ajusta sola a la ventana de contexto real de cada modelo, y el contexto ocupado se ve siempre junto al compositor.
+- Margen de cortesía: si el uso se acaba a mitad de una tarea, el agente la cierra, deja el trabajo estable y escribe `DEIZA_HANDOFF.md` con el contexto, los cambios y lo pendiente (si no llega, la app lo genera). La barra de uso avisa al 85 % y enseña la semana.
+
+![Traspaso guardado tras agotar el uso](docs/screenshots/code-handoff.png)
 
 **App**
 - Actualizaciones de un clic: descarga, comprueba la huella sha256 e instala al reiniciar.
