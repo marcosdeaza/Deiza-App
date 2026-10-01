@@ -562,7 +562,7 @@ function renderHero() {
   const stage = capuEnabled() ? h('div', { class: 'capu capu-hero', title: 'Capu' }) : null;
   if (S.heroDirector) { S.heroDirector.stop(); S.heroDirector = null; }
   if (stage) {
-    const heroPlayer = new Capu.Player(stage, { px: 4, crop: Capu.centeredBox(Object.keys(Capu.SCENES), 1), scene: 'hello' });
+    const heroPlayer = new Capu.Player(stage, { px: CAPU_PX * 2, crop: Capu.centeredBox(Object.keys(Capu.SCENES), 1), scene: 'hello' });
     S.heroDirector = new Capu.Director(heroPlayer, { sleepAfter: 90000 });
     if (!S.heroHello) S.heroDirector.set('hello');
     S.heroHello = true;
@@ -961,11 +961,14 @@ function stickToBottom() { if (stick) requestAnimationFrame(() => scrollToBottom
 // Capu stands on the top edge of the input bar: the stage ends at its feet (row 28 of the scene).
 const CAPU_STAND = (() => { const b = Capu.centeredBox(Object.keys(Capu.SCENES), 0); return { x: b.x, y: b.y, w: b.w, h: 28 - b.y }; })();
 const capuEnabled = () => localStorage.getItem('deiza:capu') !== '0';
-const capu = { el: null, player: null, director: null, fails: 0, grace: false, x: null, walking: false, walkTimer: null, cmdKind: '' };
+const capu = { el: null, player: null, director: null, fails: 0, grace: false, x: null, frac: 1, walking: false, walkTimer: null, cmdKind: '', ro: null };
+// 2 CSS px per sprite pixel, rounded to whole device pixels: at 125 % or 150 % (common on Windows)
+// a fractional size makes crispEdges draw uneven pixels and the sprite shimmers.
+const CAPU_PX = (() => { const r = window.devicePixelRatio || 1; return Math.max(1, Math.round(2 * r)) / r; })();
 function capuInit() {
   if (capu.el) return;
   capu.el = h('div', { class: 'capu capu-stand', title: 'Capu', role: 'button', 'aria-label': 'Capu' });
-  capu.player = new Capu.Player(capu.el, { px: 2, crop: CAPU_STAND });
+  capu.player = new Capu.Player(capu.el, { px: CAPU_PX, crop: CAPU_STAND });
   capu.director = new Capu.Director(capu.player, { sleepAfter: 120000 });
   // a click on Capu: an instant trick
   capu.el.addEventListener('click', () => { capuStopWalk(); capu.director.poke(); });
@@ -976,19 +979,28 @@ function capuMount(box) {
   if (!capuEnabled() || !S.cur || !box) { if (capu.el) capu.el.remove(); return; }
   capuInit();
   box.append(capu.el);
+  // the bar changes width with the window (maximise, snap) and the side panels: keep Capu on it
+  if (capu.ro) capu.ro.disconnect();
+  capu.ro = new ResizeObserver(() => { if (capu.walking) capuStopWalk(); capuPlace(); });
+  capu.ro.observe(box);
   requestAnimationFrame(() => capuPlace());
 }
 function capuRange() {
   const box = capu.el && capu.el.parentElement;
   const W = box ? box.clientWidth : 700;
-  const stage = CAPU_STAND.w * 2;
+  const stage = Math.ceil(CAPU_STAND.w * CAPU_PX);
   return [Math.round(W * 0.42), Math.max(Math.round(W * 0.42), W - stage + 10)];
 }
-function capuPlace() {
-  if (!capu.el) return;
+/** Where Capu stands, as a share of the stretch of bar it may walk (so it looks the same at any width). */
+function capuFrac(x) {
   const [a, b] = capuRange();
-  if (capu.x == null) capu.x = b;
-  capu.x = Math.min(b, Math.max(a, capu.x));
+  return b > a ? Math.min(1, Math.max(0, (x - a) / (b - a))) : 1;
+}
+function capuPlace() {
+  if (!capu.el || capu.walking) return;
+  const [a, b] = capuRange();
+  const r = window.devicePixelRatio || 1;
+  capu.x = Math.round((a + capu.frac * (b - a)) * r) / r;
   capu.el.style.left = `${capu.x}px`;
 }
 function capuWanderLater() { clearTimeout(capu.walkTimer); capu.walkTimer = setTimeout(capuWander, 18000 + Math.random() * 24000); }
@@ -998,6 +1010,7 @@ function capuWander() {
   if (!capu.el || !capu.el.isConnected || capu.walking || (S.cur && S.cur.running) || !d || d.state !== 'idle' || d.reacting || document.hidden || reduceMotion()) return capuWanderLater();
   const [a, b] = capuRange();
   const target = Math.round(a + Math.random() * (b - a));
+  if (capu.x == null) capuPlace();
   const dist = Math.abs(target - capu.x);
   if (dist < 30) return capuWanderLater();
   const secs = dist / 20;
@@ -1008,6 +1021,7 @@ function capuWander() {
   capu.el.style.transition = `left ${secs.toFixed(2)}s linear`;
   capu.el.style.left = `${target}px`;
   capu.x = target;
+  capu.frac = capuFrac(target);
   capu.walkEnd = setTimeout(() => capuStopWalk(true), secs * 1000 + 60);
 }
 function capuStopWalk(arrived) {
@@ -1019,6 +1033,7 @@ function capuStopWalk(arrived) {
     capu.el.style.transition = '';
     capu.el.style.left = `${left}px`;
     capu.x = left;
+    capu.frac = capuFrac(left);
   } else if (capu.el) capu.el.style.transition = '';
   if (capu.el) capu.el.classList.remove('flip');
   capu.director.resume();
