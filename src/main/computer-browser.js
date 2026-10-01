@@ -264,9 +264,9 @@ function createBrowserController({ getOwner = () => null, navigationTimeoutMs = 
     await command(t, 'Input.dispatchKeyEvent', { type: 'keyUp', ...params }, signal);
   }
   async function screenshot(t, args, ctx) {
-    const wc = t.win.webContents;
-    const bounds = t.win.getContentBounds();
-    const image = (await wc.capturePage()).resize({ width: bounds.width, height: bounds.height });
+    const wc = t.wc;
+    const image = await wc.capturePage();
+    const size = image.getSize();
     const buf = image.toPNG();
     let saved;
     if (args.path) {
@@ -275,7 +275,7 @@ function createBrowserController({ getOwner = () => null, navigationTimeoutMs = 
       if (!inside(path.resolve(ctx.folder), saved)) throw new Error('La captura debe guardarse dentro del proyecto.');
       fs.mkdirSync(path.dirname(saved), { recursive: true }); fs.writeFileSync(saved, buf);
     }
-    return { ...info(t), mime_type: 'image/png', width: image.getSize().width, height: image.getSize().height,
+    return { ...info(t), mime_type: 'image/png', width: size.width, height: size.height,
       coordinate_space: 'viewport', data_url: `data:image/png;base64,${buf.toString('base64')}`, ...(saved ? { path: saved } : {}) };
   }
   async function operate(t, name, args, ctx) {
@@ -292,7 +292,7 @@ function createBrowserController({ getOwner = () => null, navigationTimeoutMs = 
         if (!box || box.disabled || !box.width || !box.height) throw new Error('El elemento está oculto o desactivado.');
         x = box.x; y = box.y;
       }
-      const b = t.win.getContentBounds();
+      const b = t.view ? t.view.getBounds() : t.win.getContentBounds();
       if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= b.width || y >= b.height) throw new Error('El clic debe estar dentro de la captura del navegador.');
       const button = ['left', 'right', 'middle'].includes(args.button) ? args.button : 'left';
       const mask = modifierMask(args.modifiers || []);
@@ -329,7 +329,7 @@ function createBrowserController({ getOwner = () => null, navigationTimeoutMs = 
         const t = args.new_tab || !existing.length ? create(ctx) : select(args, ctx);
         const run = async () => {
           t.win.show(); t.win.focus();
-          await t.win.loadURL(url);
+          await navigate(t, url, ctx.signal);
           await wait(150, ctx.signal);
           return snapshot(t, ctx);
         };

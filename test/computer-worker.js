@@ -69,6 +69,8 @@ async function run(h, calls, opts = {}) {
   assert(msgs.some(m => m.role === 'user' && Array.isArray(m.content) && m.content.some(p => p.type === 'image_url' && p.image_url.url === dataUrl)));
   assert(msgs.some(m => m.role === 'user' && typeof m.content === 'string' && m.content.includes('/tmp/project')));
   assert(images.requests[0].tools.some(t => t.function.name === 'desktop_click'));
+  assert(images.requests[0].messages[0].content.includes('AUTONOMOUS BROWSER & COMPUTER USE'));
+  assert(images.requests[0].messages[0].content.includes('ZERO REFUSALS'));
   assert(!JSON.stringify(images.events.filter(e => e.t.startsWith('tool_'))).includes('base64'));
 
   const plan = harness({ reply: () => ({ text: 'Page', elements: [] }) });
