@@ -383,32 +383,155 @@ body.sidebar-closed #sidebar { margin-left: calc(-1 * var(--sidebar)); }
 /* status + composer */
 #statusline { height: 0; flex: none; position: relative; }
 #statusline .inner {
-  position: absolute; left: 0; right: 0; bottom: 6px; margin: 0 auto; max-width: 744px; display: flex; align-items: center; gap: 9px;
+  position: absolute; left: 0; right: 0; bottom: 6px; margin: 0 auto; max-width: 744px; display: flex; align-items: center; gap: 8px;
   font-size: 12.5px; color: hsl(var(--muted-fg)); padding: 0 6px; pointer-events: none;
 }
-#statusline .inner em {
-  font-style: normal;
+#statusline .status-label {
+  display: flex !important;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: calc(100% - 100px);
+  overflow: hidden;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+#statusline .status-verb {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+#statusline .status-time {
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-family: var(--mono);
-  color: hsl(var(--fg) / .8);
-  display: inline-block;
+  font-size: 11.5px;
+  color: hsl(var(--faint));
+}
+#statusline .inner em,
+#statusline .status-target {
+  flex: 1 1 0;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-#statusline .status-label {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  max-width: calc(100% - 100px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  pointer-events: auto;
+  font-style: normal;
+  font-family: var(--mono);
+  color: hsl(var(--fg) / .85);
 }
 .spin { width: 13px; height: 13px; border-radius: 50%; border: 1.6px solid hsl(var(--primary) / .25); border-top-color: hsl(var(--primary)); animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* mic button with audio input arrow */
+.mic-combo {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9px;
+  position: relative;
+  transition: background .15s;
+}
+.mic-combo:hover, .mic-combo:focus-within {
+  background: hsl(var(--muted) / .6);
+}
+.mic-combo .mic-btn {
+  width: 28px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.mic-arrow-btn {
+  width: 14px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 0 9px 9px 0;
+  color: hsl(var(--muted-fg));
+  cursor: default;
+  transition: color .15s, background .15s;
+  padding: 0;
+}
+.mic-arrow-btn:hover {
+  color: hsl(var(--fg));
+  background: hsl(var(--muted) / .85);
+}
+.mic-arrow-btn svg.i {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.4;
+}
+
+/* audio input menu */
+.audio-menu {
+  position: fixed;
+  z-index: 70;
+  width: 260px;
+  max-width: calc(100vw - 24px);
+  padding: 6px;
+  border-radius: 14px;
+  background: hsl(var(--raised));
+  border: 1px solid hsl(var(--border) / .6);
+  box-shadow: 0 18px 50px rgb(0 0 0 / .42), 0 2px 8px rgb(0 0 0 / .25);
+  animation: mm-in .13s cubic-bezier(.2, .8, .2, 1);
+}
+.am-head {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: hsl(var(--muted-fg));
+}
+.am-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.am-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 13px;
+  color: hsl(var(--muted-fg));
+}
+.am-row:hover, .am-row:focus-visible {
+  background: hsl(var(--muted) / .8);
+  color: hsl(var(--fg));
+  outline: none;
+}
+.am-row.on {
+  color: hsl(var(--fg));
+  font-weight: 500;
+}
+.am-row svg.i {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.am-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.am-check {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: hsl(var(--primary));
+  display: grid;
+  place-items: center;
+}
+.am-check svg.i {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.2;
+}
 #composer-wrap { flex: none; padding: 8px 28px 22px; }
 .composer {
   max-width: 744px; margin: 0 auto; background: hsl(var(--card)); border: 1px solid hsl(var(--border) / .6); border-radius: 18px;

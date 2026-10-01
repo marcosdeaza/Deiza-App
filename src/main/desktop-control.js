@@ -243,14 +243,14 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
       else result=await native('focus',{app,window_id:windowId},ctx);
       state.pid=result.pid;state.capture=null;return result;
     }
-    if(!['desktop_click','desktop_type','desktop_key','desktop_scroll'].includes(name))throw Error('Herramienta de escritorio desconocida.');
+    if(!['desktop_click','desktop_mouse_move','desktop_type','desktop_key','desktop_scroll'].includes(name))throw Error('Herramienta de escritorio desconocida.');
     if(!state.pid)throw Error('Selecciona una aplicación con desktop_focus o toma una captura antes de controlarla.');
     if(platform==='darwin'&&!systemPreferences.isTrustedAccessibilityClient(true))throw Error('Deiza necesita permiso de Accesibilidad. Autorízalo en Ajustes del Sistema → Privacidad y seguridad → Accesibilidad y vuelve a intentarlo.');
     const a={target_pid:state.pid};
-    if(name==='desktop_click') {
+    if(name==='desktop_click'||name==='desktop_mouse_move') {
       let x=boundedNumber(args.x,'x',-100000,100000),y=boundedNumber(args.y,'y',-100000,100000);
       const space=args.coordinate_space||'screenshot';if(!['screen','screenshot'].includes(space))throw Error('coordinate_space debe ser screenshot o screen.');
-      if(space==='screenshot') {const c=state.capture;if(!c?.bounds||!c.scale)throw Error('Toma una captura de la fuente seleccionada antes de clicar.');if(Date.now()-c.at>120000)throw Error('La captura ha caducado. Toma otra para clicar con coordenadas actuales.');if(args.source_id&&args.source_id!==c.source_id||args.display_id!==undefined&&String(args.display_id)!==c.display_id)throw Error('Las coordenadas corresponden a otra fuente. Toma una captura de la seleccionada.');if(x<0||x>=c.width||y<0||y>=c.height)throw Error('El punto debe estar dentro de la captura.');x=c.bounds.x+x*c.scale.x;y=c.bounds.y+y*c.scale.y;}
+      if(space==='screenshot') {const c=state.capture;if(!c?.bounds||!c.scale)throw Error('Toma una captura de la fuente seleccionada antes de mover el ratón o clicar.');if(Date.now()-c.at>120000)throw Error('La captura ha caducado. Toma otra para clicar con coordenadas actuales.');if(args.source_id&&args.source_id!==c.source_id||args.display_id!==undefined&&String(args.display_id)!==c.display_id)throw Error('Las coordenadas corresponden a otra fuente. Toma una captura de la seleccionada.');if(x<0||x>=c.width||y<0||y>=c.height)throw Error('El punto debe estar dentro de la captura.');x=c.bounds.x+x*c.scale.x;y=c.bounds.y+y*c.scale.y;}
       if(!screen.getAllDisplays().some(d=>x>=d.bounds.x&&y>=d.bounds.y&&x<d.bounds.x+d.bounds.width&&y<d.bounds.y+d.bounds.height))throw Error('El punto está fuera de las pantallas visibles.');
       if(platform==='win32'||platform==='linux')({x,y}=screen.dipToScreenPoint({x:Math.round(x),y:Math.round(y)}));
       Object.assign(a,{x:Math.round(x),y:Math.round(y),button:args.button||'left',click_count:boundedNumber(args.click_count,'click_count',1,2,1)});
@@ -258,16 +258,17 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
     } else if(name==='desktop_type')a.text=textArg(args.text,'text',16000);
     else if(name==='desktop_key')Object.assign(a,parseKey(args,platform));
     else Object.assign(a,{delta_y:Math.round(boundedNumber(args.delta_y,'delta_y',-4000,4000,0)),delta_x:Math.round(boundedNumber(args.delta_x,'delta_x',-4000,4000,0))});
-    const op=name.slice('desktop_'.length);
+    const op=name==='desktop_mouse_move'?'move':name.slice('desktop_'.length);
     if(platform==='linux') {
       const active=await current(ctx);if(active.pid!==a.target_pid)throw Error('La aplicación activa ha cambiado. Vuelve a seleccionarla con desktop_focus.');
       if(op==='click')await xdo(['mousemove','--sync',String(a.x),String(a.y),'click','--repeat',String(a.click_count),'--delay','70',String({left:1,middle:2,right:3}[a.button])],ctx);
+      else if(op==='move')await xdo(['mousemove','--sync',String(a.x),String(a.y)],ctx);
       else if(op==='type')await xdo(['type','--clearmodifiers','--delay','0','--file','-'],ctx,a.text);
       else if(op==='key')await xdo(['key','--clearmodifiers',[...a.modifiers.map(m=>({control:'ctrl',alt:'alt',shift:'shift',meta:'super'}[m])),a.key_code].join('+')],ctx);
       else {for(const [delta,buttons]of [[a.delta_y,[4,5]],[a.delta_x,[6,7]]])if(delta)await xdo(['click','--repeat',String(Math.min(40,Math.max(1,Math.round(Math.abs(delta)/100)))),'--delay','20',String(buttons[delta>0?1:0])],ctx);}
     } else await native(op,a,ctx);
-    if(op==='click'||op==='key'||op==='scroll'||op==='type')state.capture=null;
-    return {ok:true,...(op==='type'?{characters:a.text.length}:op==='click'?{x:a.x,y:a.y}:{}),message:'Operación completada. Toma otra captura para comprobar el resultado.'};
+    if(op==='click'||op==='key'||op==='scroll'||op==='type'||op==='move')state.capture=null;
+    return {ok:true,...(op==='type'?{characters:a.text.length}:op==='click'||op==='move'?{x:a.x,y:a.y}:{}),message:op==='move'?'Puntero movido al punto.':'Operación completada. Toma otra captura para comprobar el resultado.'};
   }
   return {
     capabilities,

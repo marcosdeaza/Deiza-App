@@ -537,7 +537,11 @@ function setupIpc(c) {
   });
   handle('code:pick-folder', async () => {
     const win = ctx.getWindow();
-    const r = await dialog.showOpenDialog(win, { title: 'Elige la carpeta del proyecto', properties: ['openDirectory', 'createDirectory'], buttonLabel: 'Abrir' });
+    const r = await dialog.showOpenDialog(process.platform === 'darwin' ? win : undefined, {
+      title: 'Elige la carpeta del proyecto',
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Abrir',
+    });
     if (r.canceled || !r.filePaths[0]) return null;
     addRecent(r.filePaths[0]);
     return r.filePaths[0];

@@ -61,6 +61,7 @@ public class DeizaDesktop {
   }
   if($a.target_pid) { [uint32]$active=0; [void][DeizaDesktop]::GetWindowThreadProcessId([DeizaDesktop]::GetForegroundWindow(),[ref]$active); if($active -ne $a.target_pid){throw 'La aplicación activa ha cambiado. Vuelve a seleccionarla con desktop_focus antes de escribir o pulsar.'} }
   switch($a.op) {
+    'move' {if(-not [DeizaDesktop]::SetCursorPos($a.x,$a.y)){throw 'Windows no pudo mover el puntero.'}}
     'click' {if(-not [DeizaDesktop]::SetCursorPos($a.x,$a.y)){throw 'Windows no pudo mover el puntero.'};$flags=@{left=@(2,4);right=@(8,16);middle=@(32,64)}[$a.button];[DeizaDesktop]::Click($flags[0],$flags[1],$a.click_count)}
     'type' {[DeizaDesktop]::Text([string]$a.text)}
     'key' {[ushort[]]$mods=@($a.modifiers | ForEach-Object { @{control=17;alt=18;shift=16;meta=91}[$_] });[DeizaDesktop]::Chord($a.key_code,$mods,$a.extended)}

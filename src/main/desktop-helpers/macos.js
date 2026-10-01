@@ -50,7 +50,11 @@ function run() {
     }
     if (!$.AXIsProcessTrusted()) throw Error('Deiza necesita permiso de Accesibilidad en Ajustes del Sistema → Privacidad y seguridad para controlar esta aplicación.');
     if (a.target_pid && Number(workspace.frontmostApplication.processIdentifier)!==a.target_pid) throw Error('La aplicación activa ha cambiado. Vuelve a seleccionarla con desktop_focus antes de escribir o pulsar.');
-    if (a.op==='click') {
+    if (a.op==='move') {
+      const point=$.CGPointMake(a.x,a.y);
+      const m=$.CGEventCreateMouseEvent(null,5,point,0);
+      $.CGEventPost(0,m);
+    } else if (a.op==='click') {
       const point=$.CGPointMake(a.x,a.y), button={left:0,right:1,middle:2}[a.button];
       const down=[1,3,25][button],up=[2,4,26][button];
       for (let i=1;i<=a.click_count;i++) {

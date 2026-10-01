@@ -140,6 +140,7 @@ const S = {
   usage: null,
   panel: { open: localStorage.getItem('deiza:panel') === '1', tab: 'files', file: null, view: 'page', url: '', tree: new Map(), expanded: new Set(), width: Number(localStorage.getItem('deiza:panel:w')) || 0 },
   openTools: new Set(),
+  audioInputId: localStorage.getItem('deiza:audio:input') || 'default',
   renaming: null,
   afterglow: 0,
 };
@@ -1187,9 +1188,20 @@ function capuFitStatus(targetLabel) {
   if (!capuEnabled() || !capu.el || !capu.el.isConnected) { label.style.maxWidth = ''; return; }
   const capuRect = capu.el.getBoundingClientRect();
   const labelRect = label.getBoundingClientRect();
-  if (!capuRect.left || !labelRect.left) return;
-  const avail = Math.floor(capuRect.left - labelRect.left - 16);
-  label.style.maxWidth = `${Math.max(60, avail)}px`;
+  if (!capuRect.left) return;
+  const comp = $('#composer-wrap .composer');
+  const compLeft = comp ? comp.getBoundingClientRect().left : 0;
+  const startLeft = labelRect.left || compLeft;
+  const avail = Math.floor(capuRect.left - startLeft - 24);
+  const maxW = Math.max(80, avail);
+  label.style.maxWidth = `${maxW}px`;
+  const em = label.querySelector('.status-target, em');
+  if (em) {
+    const verb = label.querySelector('.status-verb');
+    const time = label.querySelector('.status-time');
+    const fixed = (verb?.offsetWidth || 70) + (time?.offsetWidth || 35) + 16;
+    em.style.maxWidth = `${Math.max(40, maxW - fixed)}px`;
+  }
 }
 /** Move on animation frames, independent of global CSS transition settings (including Windows). */
 function capuMove(target, ms, kind) {
@@ -1333,11 +1345,19 @@ function renderStatus() {
   const tick = () => {
     label.innerHTML = '';
     if (st.kind === 'tool') {
-      label.append(`${T(VERBS[st.name] || 'Preparando')} `, st.text ? h('em', { text: st.text }) : '', st.bytes > 400 ? ` · ${fmtBytes(st.bytes)}` : '');
+      label.append(
+        h('span', { class: 'status-verb', text: `${T(VERBS[st.name] || 'Preparando')} ` }),
+        st.text ? h('em', { class: 'status-target', text: st.text }) : '',
+        st.bytes > 400 ? h('span', { class: 'status-time', text: ` · ${fmtBytes(st.bytes)}` }) : ''
+      );
     } else if (st.kind === 'running') {
-      label.append(st.name === 'run_command' ? `${T('Ejecutando')} ` : `${T(VERBS[st.name] || 'Trabajando')} `, st.text ? h('em', { text: st.text }) : '', ` · ${fmtDuration(Date.now() - st.since)}`);
+      label.append(
+        h('span', { class: 'status-verb', text: st.name === 'run_command' ? `${T('Ejecutando')} ` : `${T(VERBS[st.name] || 'Trabajando')} ` }),
+        st.text ? h('em', { class: 'status-target', text: st.text }) : '',
+        h('span', { class: 'status-time', text: ` · ${fmtDuration(Date.now() - st.since)}` })
+      );
     } else {
-      label.append(`${T(st.text || 'Pensando')}…`);
+      label.append(h('span', { class: 'status-verb', text: `${T(st.text || 'Pensando')}…` }));
     }
     label.title = label.textContent;
     capuFitStatus(label);
@@ -1418,8 +1438,21 @@ function renderComposer(hero) {
   const picker = h('input', { type: 'file', multiple: true, class: 'hidden' });
   picker.onchange = () => { addAttachments(Array.from(picker.files)); picker.value = ''; };
   const imgBtn = h('button', { class: 'icon-btn', title: T('Adjuntar archivos e imágenes'), 'aria-label': T('Adjuntar archivos e imágenes'), onclick: () => picker.click() }, icon('attach'));
-  const micBtn = h('button', { class: 'icon-btn mic-btn', title: T('Dictar: habla y Deiza lo escribe') }, icon('mic'));
+  const micBtn = h('button', { class: 'icon-btn mic-btn', title: T('Dictar: habla y Deiza lo escribe'), 'aria-label': T('Dictar') }, icon('mic'));
   micBtn.onclick = () => startDictation();
+  const micArrowBtn = h('button', {
+    class: 'mic-arrow-btn',
+    title: T('Cambiar entrada de audio'),
+    'aria-label': T('Cambiar entrada de audio'),
+    'aria-haspopup': 'menu',
+    'aria-expanded': 'false',
+    onclick: (e) => { e.stopPropagation(); toggleAudioInputMenu(micArrowBtn); }
+  }, icon('down'));
+  micBtn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    toggleAudioInputMenu(micArrowBtn);
+  });
+  const micCombo = h('div', { class: 'mic-combo' }, micBtn, micArrowBtn);
   const browserBtn = h('button', { class: 'icon-btn', title: T('Navegador: inicia sesión en correo o Teams y pide la tarea desde Code.'), 'aria-label': T('Navegador'), onclick: openComputerBrowser }, icon('browser'));
 
   const modes = h('div', { class: 'modes', role: 'group', 'aria-label': T('Modo del agente') });
@@ -1530,7 +1563,7 @@ function renderComposer(hero) {
     }
   });
 
-  box.append(h('div', { class: 'bar' }, imgBtn, micBtn, browserBtn, picker, modes, h('div', { class: 'grow' }), renderModelPill(), folderBtn, sendBtn));
+  box.append(h('div', { class: 'bar' }, imgBtn, micCombo, browserBtn, picker, modes, h('div', { class: 'grow' }), renderModelPill(), folderBtn, sendBtn));
   const hint = h('div', { class: 'hint' },
     h('span', { html: T('<kbd>Intro</kbd> enviar · <kbd>Mayús</kbd>+<kbd>Intro</kbd> salto de línea · <kbd>Esc</kbd> detener') }),
     h('div', { class: 'grow' }), ctxMeter());
@@ -1966,6 +1999,124 @@ function toggleModelMenu(btn) {
   el.querySelector('.mm-row.on')?.focus();
 }
 
+// ── audio input menu ──────────────────────────────────────────────────────────
+
+let audioMenu = null;
+function closeAudioMenu() {
+  if (!audioMenu) return;
+  const m = audioMenu;
+  audioMenu = null;
+  m.el.remove();
+  m.btn.setAttribute('aria-expanded', 'false');
+  document.removeEventListener('mousedown', m.onDown, true);
+  document.removeEventListener('keydown', m.onKey, true);
+  window.removeEventListener('resize', closeAudioMenu);
+}
+
+async function getAudioInputDevices() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+  try {
+    let devices = await navigator.mediaDevices.enumerateDevices();
+    let audioInputs = devices.filter(d => d.kind === 'audioinput');
+    if (audioInputs.length && !audioInputs.some(d => d.label)) {
+      const allowed = await deiza.micAccess?.();
+      if (allowed) {
+        try {
+          const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+          s.getTracks().forEach(t => t.stop());
+          devices = await navigator.mediaDevices.enumerateDevices();
+          audioInputs = devices.filter(d => d.kind === 'audioinput');
+        } catch { /* ignore */ }
+      }
+    }
+    const seen = new Set();
+    const unique = [];
+    for (const d of audioInputs) {
+      const id = d.deviceId || 'default';
+      if (!seen.has(id)) {
+        seen.add(id);
+        unique.push(d);
+      }
+    }
+    return unique;
+  } catch {
+    return [];
+  }
+}
+
+async function toggleAudioInputMenu(btn) {
+  if (audioMenu) {
+    const same = audioMenu.btn === btn;
+    closeAudioMenu();
+    if (same) return;
+  }
+  btn.setAttribute('aria-expanded', 'true');
+  const currentId = S.audioInputId || localStorage.getItem('deiza:audio:input') || 'default';
+  const devices = await getAudioInputDevices();
+
+  const el = h('div', { class: 'audio-menu', role: 'dialog', 'aria-label': T('Entrada de audio') });
+  el.append(h('div', { class: 'am-head', text: T('Entrada de audio') }));
+  const list = h('div', { class: 'am-list', role: 'menu' });
+
+  const isDefault = currentId === 'default' || !currentId;
+  const defRow = h('button', {
+    class: `am-row${isDefault ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(isDefault),
+    onclick: () => {
+      selectAudioDevice('default', T('Predeterminado del sistema'));
+      closeAudioMenu();
+    }
+  },
+    icon('mic'),
+    h('span', { class: 'am-label', text: T('Predeterminado del sistema') }),
+    h('span', { class: 'am-check' }, isDefault ? icon('check') : null)
+  );
+  list.append(defRow);
+
+  for (let i = 0; i < devices.length; i++) {
+    const d = devices[i];
+    if (d.deviceId === 'default' || !d.deviceId) continue;
+    const label = d.label || T('Micrófono {n}', { n: i + 1 });
+    const on = currentId === d.deviceId;
+    const row = h('button', {
+      class: `am-row${on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(on),
+      onclick: () => {
+        selectAudioDevice(d.deviceId, label);
+        closeAudioMenu();
+      }
+    },
+      icon('mic'),
+      h('span', { class: 'am-label', text: label }),
+      h('span', { class: 'am-check' }, on ? icon('check') : null)
+    );
+    list.append(row);
+  }
+
+  el.append(list);
+  el.style.visibility = 'hidden';
+  document.body.append(el);
+
+  const r = btn.getBoundingClientRect();
+  const w = el.offsetWidth;
+  const hgt = el.offsetHeight;
+  el.style.left = `${Math.max(12, Math.min(window.innerWidth - w - 12, r.left - 8))}px`;
+  el.style.top = `${r.top > hgt + 24 ? r.top - hgt - 8 : r.bottom + 8}px`;
+  el.style.visibility = '';
+
+  const onDown = (e) => { if (!el.contains(e.target) && !btn.contains(e.target)) closeAudioMenu(); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeAudioMenu(); btn.focus(); } };
+  document.addEventListener('mousedown', onDown, true);
+  document.addEventListener('keydown', onKey, true);
+  window.addEventListener('resize', closeAudioMenu);
+  audioMenu = { el, btn, onDown, onKey };
+  el.querySelector('.am-row.on')?.focus();
+}
+
+function selectAudioDevice(id, name) {
+  S.audioInputId = id;
+  localStorage.setItem('deiza:audio:input', id);
+  toast(T('Entrada de audio: {name}', { name }));
+}
+
 // ── dictation ─────────────────────────────────────────────────────────────────
 
 const DICTATION_MAX_MS = 5 * 60 * 1000;
@@ -1981,11 +2132,18 @@ async function startDictation() {
   const allowed = await deiza.micAccess();
   if (!allowed) { toast(T('Deiza no tiene permiso para usar el micrófono. Actívalo en los ajustes del sistema.'), 5200); return; }
   let stream;
+  const devId = S.audioInputId || localStorage.getItem('deiza:audio:input');
+  const baseConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  const constraints = devId && devId !== 'default' ? { ...baseConstraints, deviceId: { exact: devId } } : baseConstraints;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
   } catch {
-    toast(T('No se pudo abrir el micrófono'));
-    return;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: baseConstraints });
+    } catch {
+      toast(T('No se pudo abrir el micrófono'));
+      return;
+    }
   }
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
   let rec;

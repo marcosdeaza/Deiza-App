@@ -61,6 +61,13 @@ const COMPUTER_TOOL_DEFINITIONS = [
     y: { type: 'number', description: 'Vertical screenshot pixel (or global screen y with coordinate_space=screen).' },
     button, click_count: count, modifiers,
   }, ['x', 'y']),
+  tool('desktop_mouse_move', 'Move the mouse cursor to a point on the screen or latest screenshot without clicking. Useful for hover states, tooltips, or previewing mouse placement. Requires Solid or Liquid.', {
+    display_id: display,
+    source_id: { type: 'string', description: 'Optional capture source ID; must match the most recent screenshot.' },
+    coordinate_space: { type: 'string', enum: ['screenshot', 'screen'], description: 'Coordinate space (default screenshot).' },
+    x: { type: 'number', description: 'Horizontal coordinate.' },
+    y: { type: 'number', description: 'Vertical coordinate.' },
+  }, ['x', 'y']),
   tool('desktop_type', 'Insert text into the focused desktop field. Observe a recent screenshot and focus the intended app with desktop_focus first; the controller verifies that app is still foreground. Never enter passwords or login codes. Requires Solid or Liquid.', { text }, ['text']),
   tool('desktop_key', 'Press a key or shortcut in the focused app. Observe a recent screenshot and use desktop_focus first; the controller checks the foreground app. Enter may send or submit; do it only when explicitly authorized. Requires Solid or Liquid.', { key, modifiers }, ['key']),
   tool('desktop_scroll', 'Scroll the focused desktop app. Observe a recent screenshot first. Positive delta_y scrolls down; negative scrolls up. Requires Solid or Liquid.', {
@@ -70,8 +77,8 @@ const COMPUTER_TOOL_DEFINITIONS = [
 ];
 
 const COMPUTER_NAMES = new Set(COMPUTER_TOOL_DEFINITIONS.map(t => t.name));
-const COMPUTER_MUTATING = new Set(['browser_click', 'browser_type', 'browser_key', 'browser_scroll', 'browser_close', 'desktop_focus', 'desktop_click', 'desktop_type', 'desktop_key', 'desktop_scroll']);
-const COMPUTER_VISUAL = new Set(['browser_screenshot', 'desktop_screenshot', 'desktop_click', 'desktop_type', 'desktop_key', 'desktop_scroll']);
+const COMPUTER_MUTATING = new Set(['browser_click', 'browser_type', 'browser_key', 'browser_scroll', 'browser_close', 'desktop_focus', 'desktop_click', 'desktop_mouse_move', 'desktop_type', 'desktop_key', 'desktop_scroll']);
+const COMPUTER_VISUAL = new Set(['browser_screenshot', 'desktop_screenshot', 'desktop_click', 'desktop_mouse_move', 'desktop_type', 'desktop_key', 'desktop_scroll']);
 const COMPUTER_TOOL_SPECS = COMPUTER_TOOL_DEFINITIONS.map(t => ({ type: 'function', function: t }));
 
 // Cards deliberately show metadata only: no form contents, mail body, capture data or URL tokens.
@@ -86,7 +93,7 @@ function computerTarget(name, args = {}) {
   if (name === 'browser_open') return safeUrl(args.url);
   if (name === 'browser_type' || name === 'desktop_type') return `Escribir · ${String(args.text || '').length} caracteres`;
   if (name === 'browser_click') return args.element_id ? `Elemento ${String(args.element_id).slice(0, 80)}` : `Punto ${args.x}, ${args.y}`;
-  if (name === 'desktop_click') return `Punto ${args.x}, ${args.y}`;
+  if (name === 'desktop_click' || name === 'desktop_mouse_move') return `Punto ${args.x}, ${args.y}`;
   if (name === 'browser_key' || name === 'desktop_key') return `Tecla ${String(args.key || '').slice(0, 80)}`;
   if (name === 'browser_scroll' || name === 'desktop_scroll') return `Desplazar ${args.delta_y || 0}`;
   if (name === 'desktop_focus') return String(args.app || args.window_id || 'Aplicación').slice(0, 120);
@@ -113,7 +120,8 @@ function describeComputerResult(name, res = {}, args = {}) {
   const summaries = {
     browser_open: 'Página abierta', browser_snapshot: 'Página leída', browser_click: 'Clic realizado',
     browser_type: 'Texto introducido', browser_key: 'Tecla pulsada', browser_scroll: 'Página desplazada', browser_close: 'Pestaña cerrada',
-    desktop_focus: 'Aplicación enfocada', desktop_click: 'Clic realizado', desktop_type: 'Texto introducido', desktop_key: 'Tecla pulsada', desktop_scroll: 'Vista desplazada',
+    desktop_focus: 'Aplicación enfocada', desktop_click: 'Clic realizado', desktop_mouse_move: 'Puntero movido',
+    desktop_type: 'Texto introducido', desktop_key: 'Tecla pulsada', desktop_scroll: 'Vista desplazada',
   };
   return { status: 'ok', summary: summaries[name] || 'Hecho' };
 }
