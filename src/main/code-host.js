@@ -12,6 +12,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { app, ipcMain, dialog, utilityProcess, Notification, Menu, shell, net, BrowserWindow } = require('electron');
 const Transcript = require('../shared/transcript');
+const { T } = require('../shared/i18n');
 const { createStore, readJson, writeJson } = require('./store');
 const { resolveShellEnv } = require('./env');
 const preview = require('./preview');
@@ -113,6 +114,7 @@ const pickEffort = (e) => (EFFORTS.includes(e) ? e : (EFFORTS.includes(prefs.get
 function meta(doc) {
   return {
     id: doc.id, title: doc.title, folder: doc.folder, mode: doc.mode, model: pickModel(doc.model), effort: pickEffort(doc.effort),
+    pinned: Boolean(doc.pinned),
     createdAt: doc.createdAt, updatedAt: doc.updatedAt, running: running.has(doc.id),
     folderMissing: !fs.existsSync(doc.folder),
   };
@@ -128,7 +130,7 @@ function listSessions() {
     const doc = docs.get(id) || readJson(sessionFile(id));
     if (doc && doc.id) out.push(meta(doc));
   }
-  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+  return out.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.updatedAt - a.updatedAt));
 }
 
 function broadcastList() {
@@ -244,6 +246,7 @@ function createSession(folder, mode, model, effort) {
   const doc = {
     id, title: 'Nueva sesión', folder, mode: MODES.includes(mode) ? mode : (prefs.get('defaultMode') || 'build'),
     model: pickModel(model), effort: pickEffort(effort),
+    pinned: false,
     createdAt: now(), updatedAt: now(), messages: [], items: [], pendingNote: '', seq: 0,
   };
   docs.set(id, doc);
@@ -574,25 +577,31 @@ function setupIpc(c) {
     broadcastList();
     return true;
   });
-  handle('code:delete', async (id) => {
+  handle('code:delete', async (payload) => {
+    const id = typeof payload === 'object' && payload !== null ? payload.id : payload;
     const doc = loadDoc(id);
     if (!doc) return false;
-    const r = await dialog.showMessageBox(ctx.getWindow(), {
-      type: 'warning', buttons: ['Eliminar', 'Cancelar'], defaultId: 1, cancelId: 1,
-      message: `¿Eliminar «${doc.title}»?`, detail: 'Se borra el historial de la sesión en este equipo. Los archivos del proyecto no se tocan.',
-    });
-    if (r.response !== 0) return false;
     deleteSession(id);
     return true;
+  });
+  handle('code:pin', ({ id, pinned } = {}) => {
+    const doc = loadDoc(id);
+    if (!doc) return false;
+    doc.pinned = pinned !== undefined ? Boolean(pinned) : !doc.pinned;
+    saveNow(id);
+    broadcastList();
+    return doc.pinned;
   });
   handle('code:session-menu', (id) => new Promise((resolve) => {
     const doc = loadDoc(id);
     if (!doc) return resolve(null);
+    const isPinned = Boolean(doc.pinned);
     const menu = Menu.buildFromTemplate([
-      { label: 'Renombrar', click: () => resolve('rename') },
-      { label: process.platform === 'darwin' ? 'Mostrar en Finder' : 'Mostrar en el Explorador', click: () => { shell.openPath(doc.folder); resolve(null); } },
+      { label: isPinned ? T('Desfijar sesión') : T('Fijar sesión'), click: () => resolve(isPinned ? 'unpin' : 'pin') },
+      { label: T('Renombrar'), click: () => resolve('rename') },
+      { label: process.platform === 'darwin' ? T('Mostrar en Finder') : T('Mostrar en el Explorador'), click: () => { shell.openPath(doc.folder); resolve(null); } },
       { type: 'separator' },
-      { label: 'Eliminar sesión…', click: () => resolve('delete') },
+      { label: T('Eliminar sesión'), click: () => resolve('delete') },
     ]);
     menu.popup({ window: ctx.getWindow() || undefined, callback: () => setTimeout(() => resolve(null), 50) });
   }));

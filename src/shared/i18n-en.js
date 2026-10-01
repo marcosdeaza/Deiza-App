@@ -43,5 +43,10 @@
     'Lo que quedó a medias está en DEIZA_HANDOFF.md: ábrelo aquí o pégaselo a la siguiente sesión.': 'What was left unfinished is in DEIZA_HANDOFF.md: open it here or paste it into the next session.',
     'se renueva en {t}': 'resets in {t}', 'Cortesía': 'Courtesy', 'Agotado': 'Used up', 'Uso · semana': 'Usage · week', 'Uso · ventana de 5 h': 'Usage · 5 h window', 'semana {w} %': 'week {w} %',
     'Ventana de 5 horas: {p} %. Semana: {w} %. El uso cuenta lo que lees y escribes, incluido el contexto y el razonamiento.': '5-hour window: {p} %. Week: {w} %. Usage counts what is read and written, context and reasoning included.',
+    'Fijar sesión': 'Pin session', 'Desfijar sesión': 'Unpin session', 'Fijadas': 'Pinned', 'Fijada': 'Pinned',
+    'Sesión fijada': 'Session pinned', 'Sesión desfijada': 'Session unpinned', 'Sesión eliminada': 'Session deleted',
+    'Eliminar sesión': 'Delete session', '¿Eliminar «{name}»?': 'Delete “{name}”?',
+    'Se borrará el historial de esta sesión en este equipo. Los archivos de tu proyecto no se tocarán.': 'This session history will be deleted on this machine. Your project files will not be touched.',
+    'Eliminar': 'Delete', 'Cancelar': 'Cancel',
   };
 }));

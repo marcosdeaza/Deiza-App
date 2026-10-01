@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld('deiza', {
     prefs: inv('code:prefs'),
     transcribe: inv('code:transcribe'),
     rename: inv('code:rename'),
+    pin: inv('code:pin'),
     remove: inv('code:delete'),
     sessionMenu: inv('code:session-menu'),
     revert: inv('code:revert'),

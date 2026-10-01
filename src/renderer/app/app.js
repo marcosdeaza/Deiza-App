@@ -52,6 +52,7 @@ const ICONS = {
   spark: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>',
   trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
   upload: '<path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  pin: '<path d="M12 17v5M5 17h14l-2-6V4h1V2H6v2h1v7l-2 6z"/>',
 };
 const icon = (name, cls = 'i') => {
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -84,6 +85,46 @@ function toast(text, ms = 3200) {
   const t = h('div', { class: 'toast', text });
   $('#toasts').append(t);
   setTimeout(() => t.remove(), ms);
+}
+function confirmModal({ title, message, confirmText = 'Aceptar', cancelText = 'Cancelar', danger = false }) {
+  return new Promise((resolve) => {
+    deiza.overlay(true);
+    const backdrop = h('div', { class: 'modal-backdrop' });
+    const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true' },
+      h('div', { class: 'modal-head' },
+        danger ? h('div', { class: 'modal-badge danger' }, icon('trash')) : null,
+        h('h3', { class: 'modal-title', text: title }),
+      ),
+      message ? h('p', { class: 'modal-desc', text: message }) : null,
+      h('div', { class: 'modal-actions' },
+        h('button', { class: 'btn ghost small', text: cancelText, onclick: () => close(false) }),
+        h('button', { class: `btn ${danger ? 'danger' : 'primary'} small`, text: confirmText, onclick: () => close(true) })
+      )
+    );
+    backdrop.append(card);
+    document.body.append(backdrop);
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(false); }
+      if (e.key === 'Enter') { e.preventDefault(); close(true); }
+    };
+    window.addEventListener('keydown', onKey);
+
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) close(false);
+    });
+
+    const confirmBtn = card.querySelector(`.${danger ? 'danger' : 'primary'}`);
+    setTimeout(() => confirmBtn?.focus(), 50);
+
+    function close(result) {
+      window.removeEventListener('keydown', onKey);
+      backdrop.classList.add('closing');
+      setTimeout(() => backdrop.remove(), 160);
+      deiza.overlay(false);
+      resolve(result);
+    }
+  });
 }
 const tildeHome = (p) => (S.home && p.startsWith(S.home) ? `~${p.slice(S.home.length)}` : p);
 
@@ -346,17 +387,24 @@ function renderSidebar() {
   const list = $('#sb-list');
   list.innerHTML = '';
   if (!S.sessions.length) {
-    list.append(h('div', { class: 'sb-kicker', text: 'Sesiones' }),
-      h('div', { class: 'pn-empty', style: { padding: '8px 10px', textAlign: 'left', color: 'hsl(var(--muted-fg))' }, text: 'Aún no hay sesiones. Elige una carpeta y pide lo que necesites.' }));
+    list.append(h('div', { class: 'sb-kicker', text: T('Sesiones') }),
+      h('div', { class: 'pn-empty', style: { padding: '8px 10px', textAlign: 'left', color: 'hsl(var(--muted-fg))' }, text: T('Aún no hay sesiones. Elige una carpeta y pide lo que necesites.') }));
   } else {
-    list.append(h('div', { class: 'sb-kicker', text: 'Proyectos' }));
+    const pinned = S.sessions.filter(s => s.pinned);
+    if (pinned.length) {
+      list.append(h('div', { class: 'sb-kicker sb-pinned-kicker' }, icon('pin', 'i-pinned'), h('span', { text: T('Fijadas') })));
+      const pinBox = h('div', { class: 'sb-pinned-group' });
+      for (const s of pinned) pinBox.append(sessionRow(s));
+      list.append(pinBox);
+    }
+    list.append(h('div', { class: 'sb-kicker', text: T('Proyectos') }));
     const groups = new Map();
     for (const s of S.sessions) {
       if (!groups.has(s.folder)) groups.set(s.folder, []);
       groups.get(s.folder).push(s);
     }
     for (const [folder, sessions] of groups) {
-      const add = h('span', { class: 'add', title: 'Nueva sesión en esta carpeta', role: 'button' }, icon('plus'));
+      const add = h('span', { class: 'add', title: T('Nueva sesión en esta carpeta'), role: 'button' }, icon('plus'));
       add.addEventListener('click', (e) => { e.stopPropagation(); startNew(folder); });
       const head = h('button', { class: 'sb-folder-head', title: tildeHome(folder) }, icon('folder'), h('span', { text: basename(folder) }), add);
       head.onclick = () => startNew(folder);
@@ -382,18 +430,44 @@ function sessionRow(s) {
     setTimeout(() => { input.focus(); input.select(); }, 0);
     return h('div', { style: { padding: '3px 8px 3px 24px' } }, input);
   }
-  const row = h('button', { class: `sb-item${S.cur && S.cur.id === s.id ? ' active' : ''}`, title: s.title },
-    s.running ? h('span', { class: 'dot-run', title: 'Trabajando' }) : null,
+  const row = h('button', { class: `sb-item${S.cur && S.cur.id === s.id ? ' active' : ''}${s.pinned ? ' pinned' : ''}`, title: s.title },
+    s.running ? h('span', { class: 'dot-run', title: T('Trabajando') }) : null,
+    s.pinned ? h('span', { class: 'pin-badge', title: T('Fijada') }, icon('pin')) : null,
     h('span', { class: 't', text: s.title }),
     h('span', { class: 'when', text: ago(s.updatedAt) }));
   row.onclick = () => openSession(s.id);
   row.addEventListener('contextmenu', async (e) => {
     e.preventDefault();
     const action = await deiza.code.sessionMenu(s.id);
-    if (action === 'rename') { S.renaming = s.id; renderSidebar(); }
-    if (action === 'delete') {
-      const ok = await deiza.code.remove(s.id);
-      if (ok && S.cur && S.cur.id === s.id) { S.cur = null; renderThread(); }
+    if (action === 'pin' || action === 'unpin') {
+      const isPinned = action === 'pin';
+      await deiza.code.pin({ id: s.id, pinned: isPinned });
+      s.pinned = isPinned;
+      const match = S.sessions.find(x => x.id === s.id);
+      if (match) match.pinned = isPinned;
+      toast(isPinned ? T('Sesión fijada') : T('Sesión desfijada'));
+      renderSidebar();
+    } else if (action === 'rename') {
+      S.renaming = s.id;
+      renderSidebar();
+    } else if (action === 'delete') {
+      const ok = await confirmModal({
+        title: T('¿Eliminar «{name}»?', { name: s.title }),
+        message: T('Se borrará el historial de esta sesión en este equipo. Los archivos de tu proyecto no se tocarán.'),
+        confirmText: T('Eliminar'),
+        cancelText: T('Cancelar'),
+        danger: true,
+      });
+      if (ok) {
+        await deiza.code.remove(s.id);
+        toast(T('Sesión eliminada'));
+        S.sessions = S.sessions.filter(x => x.id !== s.id);
+        if (S.cur && S.cur.id === s.id) {
+          S.cur = null;
+          renderThread();
+        }
+        renderSidebar();
+      }
     }
   });
   row.addEventListener('dblclick', () => { S.renaming = s.id; renderSidebar(); });
