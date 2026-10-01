@@ -1,7 +1,7 @@
 {
   "name": "deiza-desktop",
   "productName": "Deiza",
-  "version": "1.1.14",
+  "version": "1.1.15",
   "description": "Deiza para escritorio: el workspace completo y Deiza Code en una sola app.",
   "main": "src/main/main.js",
   "author": "Deiza Solutions <contact@deiza.org>",
