@@ -1,8 +1,8 @@
 /* Deiza desktop — Ajustes: cuenta, general, Code, skills y acerca de. Uses the helpers of app.js. */
-/* global deiza, h, icon, T, S, toast, MODELS, EFFORTS, effortSlider, DeizaI18n, DeizaRose, fmtDuration, num, renderAccount, repaintModelPills */
+/* global deiza, h, icon, T, S, toast, MODELS, EFFORTS, effortSlider, DeizaI18n, DeizaRose, fmtDuration, num, renderAccount, repaintModelPills, capuMotion, capuApplyMotion, openComputerBrowser */
 'use strict';
 
-const ST = { open: false, section: 'account', data: null, account: null, skills: null, limits: null };
+const ST = { open: false, section: 'account', data: null, account: null, skills: null, limits: null, computer: null };
 
 function openSettings(section) {
   if (!S.auth.signedIn) return;
@@ -24,9 +24,11 @@ function closeSettings() {
 }
 
 async function loadSettings() {
-  const [data, account, prefs] = await Promise.all([deiza.settings.get(), deiza.account.get(), deiza.code.prefs()]);
+  const [data, account, prefs, computer] = await Promise.all([deiza.settings.get(), deiza.account.get(), deiza.code.prefs(),
+    deiza.computer?.state({ id: S.cur && S.cur.id }).catch(() => null)]);
   ST.data = { ...data, ...prefs };
   ST.account = account && !account.error ? account : ST.account;
+  ST.computer = computer;
   if (ST.open) renderSettings();
 }
 
@@ -129,6 +131,32 @@ function stCode(page, d) {
   page.append(h('div', { class: 'st-block' }, effortSlider(d.effort, async (v) => { d.effort = v; S.effort = v; repaintModelPills(); await deiza.settings.set('defaultEffort', v); })));
   page.append(stRow(T('Modo'), T('Build hace todo solo, Copilot te pide permiso en cada cambio y Plan solo lee.'), stSeg([['build', 'Build'], ['copilot', 'Copilot'], ['plan', 'Plan']], d.mode, async (v) => { await deiza.settings.set('defaultMode', v); d.mode = v; S.defaultMode = v; localStorage.setItem('deiza:code:mode', v); })));
   page.append(stRow(T('Capu'), T('La mascota de Deiza Code te acompaña mientras trabaja: teclea, se toma un café, le cuenta el bug al pato de goma y florece al terminar.'), stToggle(capuEnabled(), (v) => { localStorage.setItem('deiza:capu', v ? '1' : '0'); renderStatus(); })));
+  const motion = h('select', { class: 'field st-select', 'aria-label': T('Animaciones de Capu') });
+  for (const [value, label] of [['full', 'Completa'], ['system', 'Según el sistema'], ['reduced', 'Reducida']]) {
+    motion.append(h('option', { value, selected: value === capuMotion() }, T(label)));
+  }
+  motion.onchange = () => capuApplyMotion(motion.value);
+  page.append(stRow(T('Animaciones de Capu'), T('Elige todas las animaciones, la preferencia del sistema o poses sin movimiento.'), motion));
+  const desktop = ST.computer && ST.computer.desktop || {};
+  page.append(h('div', { class: 'st-sub', text: T('Ordenador y navegador') }),
+    stRow(T('Navegador de Code'), T('Abre correo, Teams o una web, inicia sesión y pide la tarea desde el chat de Code.'),
+      h('button', { class: 'btn ghost small', onclick: async () => { if (await openComputerBrowser()) closeSettings(); } }, icon('browser'), T('Abrir navegador'))),
+    h('p', { class: 'st-lead', text: T('Deiza puede leer páginas, tomar capturas y usar clics y teclado mientras trabaja en la tarea. Puedes detenerla con Esc.') }),
+    stRow(T('Permisos del sistema'), T('Captura: {capture} · Accesibilidad: {accessibility} · Clics y teclado: {input}', {
+      capture: computerCapability(desktop.screen_capture ?? desktop.screen_permission, true), accessibility: computerCapability(desktop.accessibility ?? desktop.accessibility_permission, true), input: computerCapability(desktop.input),
+    }), h('button', { class: 'btn ghost small', onclick: async () => {
+      try { ST.computer = await deiza.computer.state({ id: S.cur && S.cur.id }); } catch { ST.computer = null; }
+      if (ST.open && ST.section === 'code') renderSettings();
+    } }, T('Comprobar'))));
+}
+
+function computerCapability(value, permission = false) {
+  const state = value && typeof value === 'object' ? (value.status ?? value.available ?? value.granted) : value;
+  if (state === true || ['granted', 'available', 'allowed', 'authorized', 'supported'].includes(state)) return T('Disponible');
+  if (state === 'not-required') return T('No necesario');
+  if (['denied', 'restricted', 'not-granted'].includes(state) || (permission && state === false)) return T('Sin permiso');
+  if (state === false || ['unavailable', 'unsupported', 'not-supported'].includes(state)) return T('No disponible');
+  return T('Sin comprobar');
 }
 
 async function stSkills(page) {

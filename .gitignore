@@ -7,3 +7,4 @@ test/shots/
 test/_*.js
 __pycache__/
 scripts/capu/out/
+work/

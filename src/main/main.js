@@ -21,6 +21,7 @@ const {
 const { createStore } = require('./store');
 const auth = require('./auth');
 const codeHost = require('./code-host');
+const computerHost = require('./computer-host');
 const preview = require('./preview');
 const updates = require('./updates');
 const I18n = require('../shared/i18n');
@@ -615,6 +616,10 @@ function fromChat(e) {
 }
 
 function setupIpc() {
+  ipcMain.handle('computer:state', (e, payload = {}) => fromApp(e) ? computerHost.state(payload.id) : null);
+  ipcMain.handle('computer:open', (e, payload = {}) => fromApp(e) ? computerHost.open(payload) : null);
+  ipcMain.handle('computer:focus', (e, payload = {}) => fromApp(e) ? computerHost.focus(payload.id) : null);
+  ipcMain.handle('computer:close', (e, payload = {}) => fromApp(e) ? computerHost.close(payload.id) : null);
   // Local UI
   ipcMain.handle('app:init', (e) => {
     if (!fromApp(e)) return null;
@@ -877,6 +882,7 @@ app.whenReady().then(async () => {
   setupAppSession();
   preview.register();
   codeHost.init({ origin: DEIZA_ORIGIN, auth, getLanguage: appLanguage });
+  computerHost.init({ getOwner: () => win });
   setupIpc();
   buildMenu();
   createWindow();
@@ -900,6 +906,7 @@ app.on('before-quit', () => {
   quitting = true;
   state?.flush();
   codeHost.shutdown();
+  computerHost.shutdown();
 });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { if (!IS_MAC) app.quit(); });

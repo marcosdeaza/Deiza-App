@@ -3,7 +3,7 @@
  * (which draws it). Both apply the same worker events, so what is saved is what was seen.
  *
  * Items:
- *   { k:'user', id, text, images, at }
+ *   { k:'user', id, text, images, attachments, at }
  *   { k:'think', id, text, open, startedAt, ms }   model reasoning (collapsed in the UI)
  *   { k:'text', id, text, open }
  *   { k:'tool', id, name, target, path, status, summary, detail, ms, output }
@@ -52,7 +52,7 @@
     switch (ev.t) {
       case 'user': {
         closeText(items);
-        const it = { k: 'user', id: ev.id || uid('u'), text: ev.text || '', images: ev.images || [], at: ev.at || Date.now(), turnId: ev.turnId };
+        const it = { k: 'user', id: ev.id || uid('u'), text: ev.text || '', images: ev.images || [], attachments: ev.attachments || [], at: ev.at || Date.now(), turnId: ev.turnId };
         items.push(it);
         return it;
       }

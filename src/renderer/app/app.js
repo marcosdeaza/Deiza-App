@@ -34,6 +34,8 @@ const ICONS = {
   send: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
   stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.5-4.5L5 21"/>',
+  attach: '<path d="m8 13 7.5-7.5a3.5 3.5 0 0 1 5 5L10 21a5 5 0 0 1-7-7L14 3"/><path d="m6 16 10-10"/>',
+  browser: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/>',
   panel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
   external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
@@ -92,7 +94,7 @@ const S = {
   sessions: [], recents: [], cur: null, loading: null,
   pendingFolder: null, defaultMode: localStorage.getItem('deiza:code:mode') || 'build',
   model: 'deiza-solid-5', effort: 'medium', language: 'es',
-  drafts: new Map(), images: [],
+  drafts: new Map(), images: [], attachments: [], attachmentDrafts: new Map(), attachmentPending: 0,
   status: null, statusTimer: null,
   usage: null,
   panel: { open: localStorage.getItem('deiza:panel') === '1', tab: 'files', file: null, view: 'page', url: '', tree: new Map(), expanded: new Set(), width: Number(localStorage.getItem('deiza:panel:w')) || 0 },
@@ -463,6 +465,7 @@ async function openSession(id) {
   if (!doc) { toast('No se encontró la sesión'); return; }
   S.cur = { ...doc, running: doc.running };
   S.pendingFolder = null;
+  S.attachments = (S.attachmentDrafts.get(id) || []).slice();
   S.status = null;
   S.openTools.clear();
   S.panel.tree.clear();
@@ -479,6 +482,7 @@ function startNew(folder) {
   const liveDraft = S.drafts.get('_active_input') || (S.cur ? S.drafts.get(S.cur.id) : '') || '';
   S.cur = null;
   S.pendingFolder = folder || null;
+  S.attachments = (S.attachmentDrafts.get(attachmentDraftKey()) || []).slice();
   S.images = [];
   const oldAtts = $('#composer-wrap .atts, .start .atts');
   if (oldAtts) { oldAtts.innerHTML = ''; oldAtts.classList.add('hidden'); }
@@ -510,6 +514,7 @@ async function pickFolder() {
 }
 
 function saveDraft() {
+  S.attachmentDrafts.set(attachmentDraftKey(), S.attachments.slice());
   const ta = $('#composer-wrap textarea') || $('.start textarea') || $('textarea');
   if (ta && typeof ta.value === 'string') {
     const val = ta.value;
@@ -519,6 +524,78 @@ function saveDraft() {
       S.drafts.set('_active_input', val);
       try { localStorage.setItem('deiza:code:draft', val); } catch {}
     }
+  }
+}
+
+function attachmentDraftKey() {
+  return S.cur ? S.cur.id : (S.pendingFolder ? `_pending:${S.pendingFolder}` : '_new');
+}
+
+function refreshAttachments() {
+  const box = $('#composer-wrap .composer, .start .composer');
+  if (box && box._attachments) box._attachments();
+  if (box && box._refresh) box._refresh();
+}
+
+/** Add every dropped/selected file to this draft; dropping inside the composer never changes project. */
+async function addAttachments(files) {
+  const selected = typeof files === 'string' ? [files] : Array.from(files || []);
+  if (!selected.length) return { attachments: [], errors: [] };
+  const key = attachmentDraftKey();
+  const sessionId = S.cur && S.cur.id;
+  const paths = [];
+  const uploads = [];
+  S.attachmentPending++;
+  refreshAttachments();
+  try {
+    for (const file of selected) {
+      const filePath = typeof file === 'string' ? file : (file.path || deiza.pathForFile(file));
+      if (filePath) paths.push(filePath);
+      else {
+        try {
+          const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error(T('No se pudo leer el archivo')));
+            reader.readAsDataURL(file);
+          });
+          uploads.push({ name: file.name, data_url: data });
+        } catch {
+          toast(T('No se pudo adjuntar {f}', { f: file.name || T('archivo') }));
+        }
+      }
+    }
+    const result = await deiza.code.attach({ id: sessionId || undefined, paths, files: uploads });
+    const current = attachmentDraftKey() === key;
+    const draft = current ? S.attachments : (S.attachmentDrafts.get(key) || []);
+    const added = result && Array.isArray(result.attachments) ? result.attachments : [];
+    for (const item of added) if (!draft.some(existing => existing.id === item.id)) draft.push(item);
+    S.attachmentDrafts.set(key, draft.slice());
+    if (current) S.attachments = draft;
+    if (added.some(item => item.kind === 'image')) capuReact('photo');
+    for (const error of (result && result.errors) || []) {
+      toast(typeof error === 'string' ? error : (error.message || T('No se pudo adjuntar {f}', { f: error.name || T('archivo') })), 4500);
+    }
+    if (result && result.error) toast(T('No se pudieron adjuntar los archivos'));
+    return result;
+  } catch {
+    toast(T('No se pudieron adjuntar los archivos'));
+    return { attachments: [], errors: [T('No se pudieron adjuntar los archivos')] };
+  } finally {
+    S.attachmentPending--;
+    refreshAttachments();
+  }
+}
+
+async function openComputerBrowser() {
+  try {
+    const result = await deiza.computer.open({ id: S.cur && S.cur.id });
+    if (result && (result.error || result.ok === false)) { toast(T('No se pudo abrir el navegador')); return false; }
+    capuReact('web');
+    return true;
+  } catch {
+    toast(T('No se pudo abrir el navegador'));
+    return false;
   }
 }
 
@@ -562,7 +639,7 @@ function renderHero() {
   const stage = capuEnabled() ? h('div', { class: 'capu capu-hero', title: 'Capu' }) : null;
   if (S.heroDirector) { S.heroDirector.stop(); S.heroDirector = null; }
   if (stage) {
-    const heroPlayer = new Capu.Player(stage, { px: CAPU_PX * 2, crop: Capu.centeredBox(Object.keys(Capu.SCENES), 1), scene: 'hello' });
+    const heroPlayer = new Capu.Player(stage, { px: CAPU_PX * 2, crop: Capu.centeredBox(Object.keys(Capu.SCENES), 1), scene: 'hello', motion: capuMotion() });
     S.heroDirector = new Capu.Director(heroPlayer, { sleepAfter: 90000 });
     if (!S.heroHello) S.heroDirector.set('hello');
     S.heroHello = true;
@@ -615,6 +692,11 @@ const VERBS = {
   read_file: 'Leer', write_file: 'Escribir', append_file: 'Añadir', edit_file: 'Editar', run_command: 'Terminal',
   list_dir: 'Explorar', search_files: 'Buscar', fetch_url: 'Web', delete_path: 'Borrar', move_path: 'Mover',
   invoke_subagent: 'Subagente', view_image: 'Imagen', update_plan: 'Plan',
+  browser_open: 'Abrir navegador', browser_tabs: 'Ver pestañas', browser_snapshot: 'Leer página',
+  browser_screenshot: 'Capturar página', browser_click: 'Clicar', browser_type: 'Escribir',
+  browser_key: 'Pulsar tecla', browser_scroll: 'Desplazar página', browser_close: 'Cerrar pestaña',
+  desktop_screenshot: 'Capturar pantalla', desktop_apps: 'Ver aplicaciones', desktop_focus: 'Abrir aplicación',
+  desktop_click: 'Clicar', desktop_type: 'Escribir', desktop_key: 'Pulsar tecla', desktop_scroll: 'Desplazar',
 };
 
 function renderItemEl(it) {
@@ -639,6 +721,8 @@ function renderItem(it) {
     case 'user': {
       const box = h('div', { class: 'msg-user sel' });
       if (it.images && it.images.length) box.append(h('div', { class: 'imgs' }, it.images.map(p => h('img', { src: fileUrl(p), alt: '' }))));
+      if (it.attachments && it.attachments.length) box.append(h('div', { class: 'msg-atts' }, it.attachments.map(a =>
+        h('span', { class: 'file-att', title: a.name }, icon(a.kind === 'folder' ? 'folder' : a.kind === 'image' ? 'image' : 'file'), h('span', { text: a.name })))));
       if (it.text) box.append(h('div', { class: 'bubble', text: it.text }));
       return box;
     }
@@ -753,7 +837,7 @@ function renderTool(it) {
   else if (it.ms > 1500) meta.append(h('span', { text: fmtDuration(it.ms) }));
   const hasBody = toolHasBody(it);
   if (hasBody) meta.append(icon('chev', 'i chev'));
-  const verb = it.name === 'write_file' && diff && diff.isNew ? 'Crear' : (VERBS[it.name] || it.name);
+  const verb = T(it.name === 'write_file' && diff && diff.isNew ? 'Crear' : (VERBS[it.name] || it.name));
   const head = h('button', { class: 'tool-head' }, h('span', { class: 'knot' }, h('i')), h('span', { class: 'verb', text: verb }),
     h('span', { class: 'target', text: it.target || it.path || '', title: it.target || '' }), meta);
   if (hasBody) {
@@ -961,14 +1045,26 @@ function stickToBottom() { if (stick) requestAnimationFrame(() => scrollToBottom
 // Capu stands on the top edge of the input bar: the stage ends at its feet (row 28 of the scene).
 const CAPU_STAND = (() => { const b = Capu.centeredBox(Object.keys(Capu.SCENES), 0); return { x: b.x, y: b.y, w: b.w, h: 28 - b.y }; })();
 const capuEnabled = () => localStorage.getItem('deiza:capu') !== '0';
-const capu = { el: null, player: null, director: null, fails: 0, grace: false, x: null, frac: 1, walking: false, walkTimer: null, cmdKind: '', ro: null };
+// Capu has its own motion preference: full effects by default, with system/reduced options in Code settings.
+const capuMotion = () => { const m = localStorage.getItem('deiza:capu:motion'); return ['full', 'system', 'reduced'].includes(m) ? m : 'full'; };
+const systemReducedMotion = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const capuReduced = () => capuMotion() === 'reduced' || (capuMotion() === 'system' && systemReducedMotion());
+const capu = { el: null, player: null, director: null, fails: 0, grace: false, x: null, frac: 1, walking: false, moveKind: '', moveFrame: null, walkTimer: null, cmdKind: '', ro: null };
+function capuApplyMotion(value) {
+  localStorage.setItem('deiza:capu:motion', ['full', 'system', 'reduced'].includes(value) ? value : 'full');
+  document.body.classList.toggle('full-motion', !capuReduced());
+  document.body.classList.toggle('reduced-motion', capuReduced());
+  if (capu.player) capu.player.setMotion(capuMotion());
+  if (S.heroDirector) S.heroDirector.p.setMotion(capuMotion());
+  if (capuReduced()) capuReturnHome();
+}
 // 2 CSS px per sprite pixel, rounded to whole device pixels: at 125 % or 150 % (common on Windows)
 // a fractional size makes crispEdges draw uneven pixels and the sprite shimmers.
 const CAPU_PX = (() => { const r = window.devicePixelRatio || 1; return Math.max(1, Math.round(2 * r)) / r; })();
 function capuInit() {
   if (capu.el) return;
   capu.el = h('div', { class: 'capu capu-stand', title: 'Capu', role: 'button', 'aria-label': 'Capu' });
-  capu.player = new Capu.Player(capu.el, { px: CAPU_PX, crop: CAPU_STAND });
+  capu.player = new Capu.Player(capu.el, { px: CAPU_PX, crop: CAPU_STAND, motion: capuMotion() });
   capu.director = new Capu.Director(capu.player, { sleepAfter: 120000 });
   // a click on Capu: an instant trick
   capu.el.addEventListener('click', () => { capuStopWalk(); capu.director.poke(); });
@@ -981,7 +1077,12 @@ function capuMount(box) {
   box.append(capu.el);
   // the bar changes width with the window (maximise, snap) and the side panels: keep Capu on it
   if (capu.ro) capu.ro.disconnect();
-  capu.ro = new ResizeObserver(() => { if (capu.walking) capuStopWalk(); capuPlace(); });
+  capu.ro = new ResizeObserver(() => {
+    const returning = capu.moveKind === 'home';
+    if (capu.walking) capuStopWalk();
+    if (returning) capu.frac = 1;
+    capuPlace();
+  });
   capu.ro.observe(box);
   requestAnimationFrame(() => capuPlace());
 }
@@ -1002,41 +1103,83 @@ function capuPlace() {
   const r = window.devicePixelRatio || 1;
   capu.x = Math.round((a + capu.frac * (b - a)) * r) / r;
   capu.el.style.left = `${capu.x}px`;
+  capuFitStatus();
+}
+
+/** Keep the task label to the left of Capu, including during the short trip home. */
+function capuFitStatus(targetLabel) {
+  const label = targetLabel || $('#statusline .status-label');
+  if (!label) return;
+  if (!capuEnabled() || !capu.el || !capu.el.isConnected) { label.style.maxWidth = ''; return; }
+  const capuRect = capu.el.getBoundingClientRect();
+  const labelRect = label.getBoundingClientRect();
+  if (!capuRect.left || !labelRect.left) return;
+  const avail = Math.floor(capuRect.left - labelRect.left - 16);
+  label.style.maxWidth = `${Math.max(60, avail)}px`;
+}
+/** Move on animation frames, independent of global CSS transition settings (including Windows). */
+function capuMove(target, ms, kind) {
+  const from = capu.x;
+  const start = performance.now();
+  capu.walking = true;
+  capu.moveKind = kind;
+  capu.director.pause();
+  capu.el.classList.toggle('flip', target < from);
+  if (kind === 'wander') capu.player.play('walk');
+  const tick = (now) => {
+    if (!capu.el.isConnected) { capuStopWalk(); return; }
+    if (capuReduced()) {
+      capu.x = kind === 'home' ? capuRange()[1] : capu.x;
+      capu.el.style.left = `${capu.x}px`;
+      capuFitStatus();
+      capuStopWalk(true);
+      return;
+    }
+    const t = Math.min(1, (now - start) / ms);
+    const progress = kind === 'home' ? 1 - Math.pow(1 - t, 3) : t;
+    const r = window.devicePixelRatio || 1;
+    capu.x = Math.round((from + (target - from) * progress) * r) / r;
+    capu.el.style.left = `${capu.x}px`;
+    capuFitStatus();
+    if (t < 1) capu.moveFrame = requestAnimationFrame(tick);
+    else capuStopWalk(true);
+  };
+  capu.moveFrame = requestAnimationFrame(tick);
+}
+/** Return to the right-hand end before responding; repeated status events keep the same trip. */
+function capuReturnHome() {
+  if (!capu.el || !capu.el.isConnected) return;
+  if (capu.moveKind === 'home' && !capuReduced()) return;
+  capuStopWalk();
+  if (capu.x == null) capuPlace();
+  const target = capuRange()[1];
+  const distance = Math.abs(target - capu.x);
+  capu.frac = 1;
+  if (capuReduced() || distance < 1) { capuPlace(); return; }
+  capuMove(target, Math.min(320, Math.max(140, distance / 1.8)), 'home');
 }
 function capuWanderLater() { clearTimeout(capu.walkTimer); capu.walkTimer = setTimeout(capuWander, 18000 + Math.random() * 24000); }
 /** Now and then, while resting, Capu walks a little along the input bar. */
 function capuWander() {
   const d = capu.director;
-  if (!capu.el || !capu.el.isConnected || capu.walking || (S.cur && S.cur.running) || !d || d.state !== 'idle' || d.reacting || document.hidden || reduceMotion()) return capuWanderLater();
+  if (!capu.el || !capu.el.isConnected || capu.walking || (S.cur && S.cur.running) || !d || d.state !== 'idle' || d.reacting || document.hidden || capuReduced()) return capuWanderLater();
   const [a, b] = capuRange();
   const target = Math.round(a + Math.random() * (b - a));
   if (capu.x == null) capuPlace();
   const dist = Math.abs(target - capu.x);
   if (dist < 30) return capuWanderLater();
-  const secs = dist / 20;
-  capu.walking = true;
-  d.pause();
-  capu.el.classList.toggle('flip', target < capu.x);
-  capu.player.play('walk');
-  capu.el.style.transition = `left ${secs.toFixed(2)}s linear`;
-  capu.el.style.left = `${target}px`;
-  capu.x = target;
-  capu.frac = capuFrac(target);
-  capu.walkEnd = setTimeout(() => capuStopWalk(true), secs * 1000 + 60);
+  capuMove(target, dist / 20 * 1000, 'wander');
 }
 function capuStopWalk(arrived) {
   if (!capu.walking) return;
-  clearTimeout(capu.walkEnd);
+  cancelAnimationFrame(capu.moveFrame);
+  capu.moveFrame = null;
+  const returning = capu.moveKind === 'home';
   capu.walking = false;
-  if (!arrived && capu.el) {
-    const left = capu.el.offsetLeft;
-    capu.el.style.transition = '';
-    capu.el.style.left = `${left}px`;
-    capu.x = left;
-    capu.frac = capuFrac(left);
-  } else if (capu.el) capu.el.style.transition = '';
+  capu.moveKind = '';
+  capu.frac = arrived && returning ? 1 : capuFrac(capu.x);
   if (capu.el) capu.el.classList.remove('flip');
-  capu.director.resume();
+  capu.director.resume(returning);
   capuWanderLater();
 }
 /** Whichever Capu is on screen: the one on the input bar, or the big one on the start page. */
@@ -1045,12 +1188,12 @@ function capuSet(state) {
   if (!capuEnabled()) return;
   capuInit();
   if (capu.grace && state !== 'done' && state !== 'idle') state = 'grace';
-  if (state !== 'idle' && state !== 'watch') capuStopWalk();
+  if (state !== 'idle') capuReturnHome();
   capu.director.set(state);
 }
 function capuReact(scene, after) {
   if (!capuEnabled()) return;
-  if (S.cur) { capuInit(); capuStopWalk(); }
+  if (S.cur) { capuInit(); capuReturnHome(); }
   const d = capuDirector();
   if (d) d.react(scene, after);
 }
@@ -1077,7 +1220,9 @@ function capuFromStatus(st) {
     if (st.kind === 'running') capu.cmdKind = kind;
     return kind || 'running';
   }
-  if (n === 'fetch_url') return 'web';
+  if (n === 'fetch_url' || n.startsWith('browser_')) return 'web';
+  if (/^desktop_(screenshot|apps)$/.test(n)) return 'reading';
+  if (n.startsWith('desktop_')) return 'writing';
   if (/write|append|edit|move|delete/.test(n)) return 'writing';
   if (/read|list|search|view|image/.test(n)) return 'reading';
   return 'thinking';
@@ -1098,27 +1243,35 @@ function renderStatus() {
     return;
   }
   if (glow) {
-    line.append(h('div', { class: 'inner done' }, h('span', { text: S.afterglowText || T('Hecho') })));
+    const label = h('span', { class: 'status-label', text: S.afterglowText || T('Hecho') });
+    const inner = h('div', { class: 'inner done' }, label);
+    line.append(inner);
+    capuFitStatus(label);
+    requestAnimationFrame(() => capuFitStatus(label));
     return;
   }
   const st = S.status || { kind: 'thinking', text: 'Pensando', since: Date.now() };
   if (withCapu && !capu.grace) capuSet(capuFromStatus(st));
   const inner = h('div', { class: `inner${withCapu ? '' : ' plain'}` }, withCapu ? null : DeizaRose(16, { loop: true }));
-  const label = h('span');
+  const label = h('span', { class: 'status-label' });
+  inner.append(label);
+  line.append(inner);
   const tick = () => {
     label.innerHTML = '';
     if (st.kind === 'tool') {
-      label.append(`${VERBS[st.name] || 'Preparando'} `, st.text ? h('em', { text: st.text }) : '', st.bytes > 400 ? ` · ${fmtBytes(st.bytes)}` : '');
+      label.append(`${T(VERBS[st.name] || 'Preparando')} `, st.text ? h('em', { text: st.text }) : '', st.bytes > 400 ? ` · ${fmtBytes(st.bytes)}` : '');
     } else if (st.kind === 'running') {
-      label.append(st.name === 'run_command' ? 'Ejecutando ' : `${VERBS[st.name] || 'Trabajando'} `, st.text ? h('em', { text: st.text }) : '', ` · ${fmtDuration(Date.now() - st.since)}`);
+      label.append(st.name === 'run_command' ? `${T('Ejecutando')} ` : `${T(VERBS[st.name] || 'Trabajando')} `, st.text ? h('em', { text: st.text }) : '', ` · ${fmtDuration(Date.now() - st.since)}`);
     } else {
       label.append(`${T(st.text || 'Pensando')}…`);
     }
+    label.title = label.textContent;
+    capuFitStatus(label);
   };
   tick();
   if (st.kind === 'running') S.statusTimer = setInterval(tick, 1000);
-  inner.append(label);
-  line.append(inner);
+  capuFitStatus(label);
+  requestAnimationFrame(() => capuFitStatus(label));
 }
 
 // ── composer ──────────────────────────────────────────────────────────────────
@@ -1145,7 +1298,7 @@ function renderComposer(hero) {
   const fit = () => { ta.style.height = 'auto'; ta.style.height = `${Math.min(280, ta.scrollHeight)}px`; };
   ta.addEventListener('input', () => {
     fit();
-    sendBtn.disabled = !canSend();
+    sendBtn.disabled = sending || S.attachmentPending > 0 || !canSend();
     const k = S.cur ? S.cur.id : (S.pendingFolder ? `_pending:${S.pendingFolder}` : '_new');
     S.drafts.set(k, ta.value);
     S.drafts.set('_active_input', ta.value);
@@ -1158,43 +1311,42 @@ function renderComposer(hero) {
 
   const renderAtts = () => {
     atts.innerHTML = '';
-    atts.classList.toggle('hidden', !S.images.length);
+    atts.classList.toggle('hidden', !S.images.length && !S.attachments.length && !S.attachmentPending);
     S.images.forEach((src, i) => {
-      atts.append(h('div', { class: 'att' }, h('img', { src }), h('button', { title: T('Quitar'), onclick: () => { S.images.splice(i, 1); renderAtts(); sendBtn.disabled = !canSend(); } }, '×')));
+      atts.append(h('div', { class: 'att' }, h('img', { src }), h('button', { title: T('Quitar'), onclick: () => { S.images.splice(i, 1); refreshAttachments(); } }, '×')));
     });
+    for (const item of S.attachments) {
+      const remove = h('button', { type: 'button', title: T('Quitar {f}', { f: item.name }), 'aria-label': T('Quitar {f}', { f: item.name }), onclick: () => {
+        S.attachments = S.attachments.filter(a => a.id !== item.id);
+        S.attachmentDrafts.set(attachmentDraftKey(), S.attachments.slice());
+        refreshAttachments();
+      } }, icon('x'));
+      atts.append(h('div', { class: 'file-att', title: item.name }, icon(item.kind === 'folder' ? 'folder' : item.kind === 'image' ? 'image' : 'file'),
+        h('span', { text: item.name }), item.size ? h('small', { text: fmtBytes(item.size) }) : null, remove));
+    }
+    if (S.attachmentPending) atts.append(h('span', { class: 'att-pending' }, h('span', { class: 'spin' }), T('Adjuntando…')));
   };
   renderAtts();
 
-  const addImageFiles = async (files) => {
-    for (const f of files) {
-      if (!/^image\/(png|jpe?g|gif|webp)$/.test(f.type) || f.size > 8 * 1024 * 1024 || S.images.length >= 6) continue;
-      S.images.push(await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); }));
-    }
-    renderAtts();
-    if (files.length) capuReact('photo');
-    sendBtn.disabled = !canSend();
-  };
   ta.addEventListener('paste', (e) => {
-    const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
-    if (files.length) { e.preventDefault(); addImageFiles(files); }
+    const files = Array.from(e.clipboardData?.files || []);
+    if (files.length) { e.preventDefault(); addAttachments(files); }
   });
-  box.addEventListener('dragover', (e) => { e.preventDefault(); box.classList.add('drop'); });
+  box.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); box.classList.add('drop'); });
   box.addEventListener('dragleave', () => box.classList.remove('drop'));
   box.addEventListener('drop', (e) => {
     e.preventDefault();
     e.stopPropagation();
     box.classList.remove('drop');
-    const files = [...(e.dataTransfer?.files || [])];
-    const imgs = files.filter(f => f.type.startsWith('image/'));
-    if (imgs.length) addImageFiles(imgs);
-    else if (files[0]) handleDroppedPath(deiza.pathForFile(files[0]));
+    addAttachments(Array.from(e.dataTransfer?.files || []));
   });
 
-  const picker = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp', multiple: true, class: 'hidden' });
-  picker.onchange = () => { addImageFiles([...picker.files]); picker.value = ''; };
-  const imgBtn = h('button', { class: 'icon-btn', title: T('Adjuntar imagen'), onclick: () => picker.click() }, icon('image'));
+  const picker = h('input', { type: 'file', multiple: true, class: 'hidden' });
+  picker.onchange = () => { addAttachments(Array.from(picker.files)); picker.value = ''; };
+  const imgBtn = h('button', { class: 'icon-btn', title: T('Adjuntar archivos e imágenes'), 'aria-label': T('Adjuntar archivos e imágenes'), onclick: () => picker.click() }, icon('attach'));
   const micBtn = h('button', { class: 'icon-btn mic-btn', title: T('Dictar: habla y Deiza lo escribe') }, icon('mic'));
   micBtn.onclick = () => startDictation();
+  const browserBtn = h('button', { class: 'icon-btn', title: T('Navegador: inicia sesión en correo o Teams y pide la tarea desde Code.'), 'aria-label': T('Navegador'), onclick: openComputerBrowser }, icon('browser'));
 
   const modes = h('div', { class: 'modes', role: 'group', 'aria-label': T('Modo del agente') });
   const MODE_TIPS = { build: T('Build: autónomo, hace todo el trabajo'), copilot: T('Copilot: aprueba cada cambio y comando'), plan: T('Plan: solo lee y propone') };
@@ -1216,86 +1368,82 @@ function renderComposer(hero) {
     ? h('button', { class: 'folder-chip', title: folder ? tildeHome(folder) : T('Elegir carpeta del proyecto'), onclick: () => pickFolder() }, icon('folder'), h('span', { text: folder ? basename(folder) : T('Elegir carpeta…') }))
     : null;
 
-  const canSend = () => Boolean(ta.value.trim() || S.images.length);
+  let sending = false;
+  const canSend = () => Boolean(ta.value.trim() || S.images.length || S.attachments.length);
   const sendBtn = h('button', { class: `send${running ? ' stop' : ''}`, title: running ? T('Detener (Esc)') : T('Enviar (Intro)') }, icon(running ? 'stop' : 'send'));
-  sendBtn.disabled = !running && !canSend();
+  sendBtn.disabled = !running && (S.attachmentPending > 0 || !canSend());
   sendBtn.onclick = () => (S.cur && S.cur.running ? stopRun() : submit());
 
   const submit = async () => {
     const text = ta.value.trim();
-    if (!text && !S.images.length) return;
+    if (sending || S.attachmentPending || (!text && !S.images.length && !S.attachments.length)) return;
     if (S.cur && S.cur.running) {
       toast(T('Espera a que termine o detén la petición actual'));
       return;
     }
-
-    // Capture images and clear immediately from state and UI
     const images = S.images.slice();
-    S.images = [];
-    renderAtts();
-    const curAtts = $('#composer-wrap .atts, .start .atts');
-    if (curAtts) { curAtts.innerHTML = ''; curAtts.classList.add('hidden'); }
-    if (picker) picker.value = '';
-
-    // Clear textarea and active drafts immediately so subsequent turns are clean
-    ta.value = '';
-    ta.style.height = 'auto';
-    const curTa = $('#composer-wrap textarea');
-    if (curTa) { curTa.value = ''; curTa.style.height = 'auto'; }
-    S.drafts.delete('_active_input');
-    S.drafts.delete('_new');
-    if (S.cur) S.drafts.delete(S.cur.id);
-    if (S.pendingFolder) S.drafts.delete(`_pending:${S.pendingFolder}`);
-    try { localStorage.removeItem('deiza:code:draft'); } catch {}
-
-    let id = S.cur && S.cur.id;
-    if (!id) {
-      let f = S.pendingFolder;
-      if (!f) f = await pickFolder();
-      if (!f) {
-        // User canceled folder picker: restore text and images
-        S.images = images;
-        renderAtts();
-        ta.value = text;
+    const attachments = S.attachments.slice();
+    sending = true;
+    refreshAttachments();
+    try {
+      let id = S.cur && S.cur.id;
+      if (!id) {
+        let folder = S.pendingFolder;
+        if (!folder) folder = await pickFolder();
+        if (!folder) return;
+        const meta = await deiza.code.create({ folder, mode: S.defaultMode, model: S.model, effort: S.effort });
+        if (!meta || meta.error) { toast(T('No se pudo abrir esa carpeta')); return; }
+        S.attachmentDrafts.set(meta.id, attachments.slice());
+        S.drafts.set(meta.id, text);
+        await openSession(meta.id);
+        id = meta.id;
+      }
+      if (!S.cur || S.cur.id !== id) return;
+      const imageCount = images.length + attachments.filter(a => a.kind === 'image').length;
+      if (imageCount && modelInfo(S.cur.model).id === 'deiza-gas-4.5') toast(T('Gas no ve imágenes: cambia a Liquid 5.1 o Solid 5 si importan.'), 4200);
+      capuReturnHome();
+      const result = await deiza.code.send({ id, text, images, attachments: attachments.map(a => ({ id: a.id })), mode: S.cur.mode, model: S.cur.model, effort: S.cur.effort });
+      if (result && (result.error || result.ok === false)) {
+        const msg = (result.error === 'attachments' && result.message) || { auth: T('Inicia sesión en Deiza para usar Code'), busy: T('Ya hay una petición en curso'), folder: T('La carpeta del proyecto ya no existe'), empty: T('Escribe algo primero') }[result.error] || T('No se pudo enviar');
+        toast(msg);
         return;
       }
-      const meta = await deiza.code.create({ folder: f, mode: S.defaultMode, model: S.model, effort: S.effort });
-      if (!meta || meta.error) {
-        toast(T('No se pudo abrir esa carpeta'));
-        S.images = images;
-        renderAtts();
-        ta.value = text;
-        return;
+      const ids = new Set(attachments.map(a => a.id));
+      const remaining = (S.cur && S.cur.id === id ? S.attachments : (S.attachmentDrafts.get(id) || [])).filter(a => !ids.has(a.id));
+      S.attachmentDrafts.set(id, remaining.slice());
+      // A draft can move from the start page to a chosen project before it gets its session id.
+      for (const [key, draft] of S.attachmentDrafts) S.attachmentDrafts.set(key, draft.filter(a => !ids.has(a.id)));
+      if (S.cur && S.cur.id === id) {
+        S.attachments = remaining;
+        S.images = S.images.filter(src => !images.includes(src));
+        const input = $('#composer-wrap textarea, .start textarea');
+        if (input && input.value.trim() === text) {
+          input.value = '';
+          input.style.height = 'auto';
+          S.drafts.delete(id);
+          S.drafts.delete('_active_input');
+          S.drafts.delete('_new');
+          if (S.pendingFolder) S.drafts.delete(`_pending:${S.pendingFolder}`);
+          try { localStorage.removeItem('deiza:code:draft'); } catch {}
+        }
+        if (picker) picker.value = '';
+        S.cur.running = true;
+        S.status = { kind: 'thinking', text: 'Pensando', since: Date.now() };
+        stick = true;
+        renderStatus();
+        scrollToBottom(true);
       }
-      await openSession(meta.id);
-      id = meta.id;
+    } catch {
+      toast(T('No se pudo enviar'));
+    } finally {
+      sending = false;
+      refreshAttachments();
     }
-
-    if (images.length && modelInfo(S.cur.model).id === 'deiza-gas-4.5') toast(T('Gas no ve imágenes: cambia a Liquid 5.1 o Solid 5 si importan.'), 4200);
-    const r = await deiza.code.send({ id, text, images, mode: S.cur.mode, model: S.cur.model, effort: S.cur.effort });
-    if (r && r.error) {
-      const msg = { auth: T('Inicia sesión en Deiza para usar Code'), busy: T('Ya hay una petición en curso'), folder: T('La carpeta del proyecto ya no existe'), empty: T('Escribe algo primero') }[r.error] || T('No se pudo enviar');
-      toast(msg);
-      return;
-    }
-
-    // Safety clear of any residual image state
-    S.images = [];
-    renderAtts();
-    const finalAtts = $('#composer-wrap .atts, .start .atts');
-    if (finalAtts) { finalAtts.innerHTML = ''; finalAtts.classList.add('hidden'); }
-    if (picker) picker.value = '';
-
-    S.cur.running = true;
-    S.status = { kind: 'thinking', text: 'Pensando', since: Date.now() };
-    stick = true;
-    refreshComposerState();
-    renderStatus();
-    scrollToBottom(true);
   };
 
   ta.addEventListener('input', () => {
-    if (hero || !capuEnabled() || !capu.director || (S.cur && S.cur.running) || capu.grace || capu.walking || dict) return;
+    if (hero || !capuEnabled() || !capu.director || (S.cur && S.cur.running) || capu.grace || dict) return;
+    capuReturnHome();
     if (capu.director.state !== 'watch') capu.director.set('watch');
     clearTimeout(capu.watchTimer);
     capu.watchTimer = setTimeout(() => { if (capu.director.state === 'watch') capu.director.set('idle'); }, 4000);
@@ -1308,21 +1456,22 @@ function renderComposer(hero) {
     }
   });
 
-  box.append(h('div', { class: 'bar' }, imgBtn, micBtn, picker, modes, h('div', { class: 'grow' }), renderModelPill(), folderBtn, sendBtn));
+  box.append(h('div', { class: 'bar' }, imgBtn, micBtn, browserBtn, picker, modes, h('div', { class: 'grow' }), renderModelPill(), folderBtn, sendBtn));
   const hint = h('div', { class: 'hint' },
     h('span', { html: T('<kbd>Intro</kbd> enviar · <kbd>Mayús</kbd>+<kbd>Intro</kbd> salto de línea · <kbd>Esc</kbd> detener') }),
     h('div', { class: 'grow' }), ctxMeter());
   const frag = h('div', null, box, hero ? null : hint);
   box._ta = ta;
+  box._attachments = renderAtts;
   box._refresh = () => {
     const run = Boolean(S.cur && S.cur.running);
     sendBtn.className = `send${run ? ' stop' : ''}`;
     sendBtn.innerHTML = '';
     sendBtn.append(icon(run ? 'stop' : 'send'));
     sendBtn.title = run ? T('Detener (Esc)') : T('Enviar (Intro)');
-    sendBtn.disabled = !run && !canSend();
+    sendBtn.disabled = !run && (sending || S.attachmentPending > 0 || !canSend());
   };
-  box._changed = () => { fit(); sendBtn.disabled = !(S.cur && S.cur.running) && !canSend(); };
+  box._changed = () => { fit(); box._refresh(); };
   if (dict) dict.attach(box);
   if (!hero) capuMount(box);
   return frag;
@@ -1466,7 +1615,7 @@ async function chooseModel(patch) {
 // A thick track of small cells that light up towards the handle, with a soft aura around it.
 // Drag, click or use the arrow keys; it settles on one of the five levels.
 
-const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reduceMotion = () => capuReduced();
 
 function effortSlider(value, onPick) {
   const idxOf = (id) => Math.max(0, EFFORTS.findIndex(e => e.id === id));
@@ -1754,6 +1903,7 @@ function composerBox() {
 
 async function startDictation() {
   if (dict) return;
+  capuReturnHome();
   const allowed = await deiza.micAccess();
   if (!allowed) { toast(T('Deiza no tiene permiso para usar el micrófono. Actívalo en los ajustes del sistema.'), 5200); return; }
   let stream;
@@ -1878,7 +2028,7 @@ async function startDictation() {
   rec.start(1000);
   dict = { finish, attach };
   const capuWas = capuDirector() ? capuDirector().state : 'idle';
-  if (capuDirector()) { capuStopWalk(); capuDirector().set('listening'); }
+  if (capuDirector()) { capuReturnHome(); capuDirector().set('listening'); }
   dict.capuWas = capuWas;
   attach(composerBox());
 }
@@ -2210,6 +2360,7 @@ async function boot() {
   S.auth = info.auth;
   document.body.classList.add(info.platform === 'win32' ? 'win' : info.platform === 'darwin' ? 'mac' : 'linux');
   if (info.material) document.body.classList.add('material');
+  capuApplyMotion(capuMotion());
   $('#chat-under').append(DeizaRose(84, { loop: true }));
   document.body.classList.add('chat-loading');
   applyAuth();
@@ -2272,13 +2423,48 @@ async function boot() {
     else if (mod && e.key.toLowerCase() === 'l') { e.preventDefault(); ($('#composer-wrap textarea') || $('.start textarea'))?.focus(); }
     else if (mod && e.key === '\\') { e.preventDefault(); if (S.cur) togglePanel(S.panel.tab || 'files'); }
   });
-  // Dropping a folder anywhere in Code opens it.
-  $('#code').addEventListener('dragover', (e) => e.preventDefault());
-  $('#code').addEventListener('drop', (e) => {
+  // Drag and drop: files, folders, zips, scripts or images dropped anywhere in Code.
+  const handleDropFiles = async (e) => {
     e.preventDefault();
-    const f = e.dataTransfer?.files?.[0];
-    if (f && !f.type) handleDroppedPath(deiza.pathForFile(f));
-  });
+    e.stopPropagation();
+    const comp = $('#composer-wrap .composer') || $('.start .composer');
+    if (comp) comp.classList.remove('drop');
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) return;
+    if (S.cur) {
+      await addAttachments(files);
+      return;
+    }
+    if (files.length === 1) {
+      const p = deiza.pathForFile(files[0]);
+      if (p) {
+        const r = await deiza.code.create({ folder: p, mode: S.defaultMode });
+        if (r && r.id) {
+          await refreshSessions();
+          await openSession(r.id);
+          return;
+        }
+      }
+    }
+    await addAttachments(files);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    const comp = $('#composer-wrap .composer') || $('.start .composer');
+    if (comp) comp.classList.add('drop');
+  };
+  const handleDragLeave = (e) => {
+    if (!e.relatedTarget || e.relatedTarget === document.documentElement) {
+      const comp = $('#composer-wrap .composer') || $('.start .composer');
+      if (comp) comp.classList.remove('drop');
+    }
+  };
+
+  $('#code').addEventListener('dragover', handleDragOver);
+  $('#code').addEventListener('dragleave', handleDragLeave);
+  $('#code').addEventListener('drop', handleDropFiles);
+  window.addEventListener('resize', () => capuFitStatus());
 
   const r = await refreshSessions();
   if (r.lastSession && S.sessions.some(s => s.id === r.lastSession)) await openSession(r.lastSession);

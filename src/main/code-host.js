@@ -15,6 +15,8 @@ const Transcript = require('../shared/transcript');
 const { createStore, readJson, writeJson } = require('./store');
 const { resolveShellEnv } = require('./env');
 const preview = require('./preview');
+const computerHost = require('./computer-host');
+const { createAttachmentStore } = require('./code-attachments');
 
 const WORKER = path.join(__dirname, '../engine/worker.js');
 const IDLE_KILL_MS = 15 * 60 * 1000;
@@ -42,6 +44,7 @@ let ctx = null;           // { isTrusted, getWindow, send, setMode }
 let dir = '';
 let prefs = null;
 let getLanguage = () => 'es';
+let attachmentStore = null;
 let skillsCache = { at: 0, token: '', list: [] };
 
 const docs = new Map();     // id -> session doc (loaded lazily)
@@ -153,6 +156,7 @@ async function ensureWorker(id, folder) {
   workers.set(id, entry);
   proc.on('message', (ev) => onWorkerEvent(id, ev));
   proc.on('exit', (code) => {
+    computerHost.cancelSession(id);
     entry.alive = false;
     if (workers.get(id) === entry) workers.delete(id);
     const r = running.get(id);
@@ -195,6 +199,15 @@ function onWorkerEvent(id, ev) {
   const doc = loadDoc(id);
   if (!doc) return;
   if (ev.t === 'ready') return;
+  if (ev.t === 'computer_request') {
+    const proc = workers.get(id)?.proc;
+    if (!proc || !running.has(id)) return;
+    computerHost.request(id, ev.requestId, ev.name, ev.args || {}, doc.folder, doc.mode)
+      .then(result => { if (workers.get(id)?.proc === proc) proc.postMessage({ t: 'computer_result', requestId: ev.requestId, result }); })
+      .catch(err => { if (workers.get(id)?.proc === proc) proc.postMessage({ t: 'computer_result', requestId: ev.requestId, result: { error: err.message } }); });
+    return;
+  }
+  if (ev.t === 'computer_cancel') { computerHost.cancel(id, ev.requestId); return; }
   if (ev.t === 'history') { doc.messages = ev.messages; scheduleSave(id); return; }
   if (ev.t === 'context') { doc.context = { used: ev.used, limit: ev.limit, model: ev.model, estimated: Boolean(ev.estimated) }; }
   if (ev.t === 'quota') { ctx?.send('code:event', { id, seq: 0, ev }); return; }
@@ -279,7 +292,7 @@ async function enabledSkills() {
 
 function invalidateSkills() { skillsCache = { at: 0, token: '', list: [] }; }
 
-async function send({ id, text, images, mode, model, effort }) {
+async function send({ id, text, images, attachments = [], mode, model, effort }) {
   const doc = loadDoc(id);
   if (!doc) return { error: 'not_found' };
   if (running.has(id)) return { error: 'busy' };
@@ -287,7 +300,14 @@ async function send({ id, text, images, mode, model, effort }) {
   if (!fs.existsSync(doc.folder)) return { error: 'folder' };
   const input = String(text || '').trim();
   const att = saveAttachments(id, images);
-  if (!input && !att.paths.length) return { error: 'empty' };
+  let selected;
+  try {
+    selected = attachmentStore.resolve(attachments, id);
+    att.dataUrls.push(...attachmentStore.images(selected));
+    att.paths.push(...selected.filter(a => a.kind === 'image').map(a => a.path));
+    if (att.dataUrls.length > 6) throw new Error('Adjunta como máximo 6 imágenes por mensaje.');
+  } catch (err) { return { error: 'attachments', message: err.message }; }
+  if (!input && !att.paths.length && !selected.length) return { error: 'empty' };
 
   if (mode && MODES.includes(mode)) doc.mode = mode;
   if (MODELS.includes(model)) doc.model = model;
@@ -297,7 +317,7 @@ async function send({ id, text, images, mode, model, effort }) {
     doc.title = first.length > 64 ? `${first.slice(0, 61).trimEnd()}…` : first;
   }
   const turnId = `turn_${uid()}`;
-  emit(id, { t: 'user', text: input, images: att.paths, turnId });
+  emit(id, { t: 'user', text: input, images: att.paths, attachments: selected.map(({ id, name, path, kind, size }) => ({ id, name, path, kind, size })), turnId });
   const note = doc.pendingNote;
   doc.pendingNote = '';
   running.set(id, { turnId, startedAt: now() });
@@ -318,6 +338,7 @@ async function send({ id, text, images, mode, model, effort }) {
       messages: doc.messages,
       input: note ? `${note}\n\n${input}` : input,
       images: att.dataUrls,
+      attachments: selected,
       auth: { token: auth.getToken(), origin: ORIGIN, appVersion: app.getVersion() },
       desktop: { platform: process.platform, arch: process.arch },
     });
@@ -332,6 +353,7 @@ function abort(id) {
   const r = running.get(id);
   if (!r) return;
   r.aborting = true;
+  computerHost.cancelSession(id);
   const w = workers.get(id);
   if (w && w.alive) w.proc.postMessage({ type: 'abort' });
   // A command that ignores the signal (or a stuck request) must not keep the session hostage.
@@ -375,6 +397,9 @@ function revert(id, turnId) {
 }
 
 function deleteSession(id) {
+  computerHost.cancelSession(id);
+  computerHost.close(id);
+  attachmentStore?.removeSession(id);
   const w = workers.get(id);
   if (w && w.alive) w.proc.kill();
   workers.delete(id);
@@ -515,6 +540,10 @@ function setupIpc(c) {
     return r.filePaths[0];
   });
   handle('code:send', (payload) => send(payload || {}));
+  handle('code:attach', (payload = {}) => {
+    if (payload.id && !loadDoc(payload.id)) return { attachments: [], errors: ['La sesión ya no existe.'] };
+    return attachmentStore.attach(payload);
+  });
   handle('code:abort', (id) => { abort(id); return true; });
   handle('code:approve', ({ id, approvalId, approved, always } = {}) => {
     const w = workers.get(id);
@@ -618,6 +647,7 @@ function init(opts) {
   auth = opts.auth;
   if (opts.getLanguage) getLanguage = opts.getLanguage;
   dir = path.join(app.getPath('userData'), 'code');
+  attachmentStore = createAttachmentStore(path.join(dir, 'file-attachments'));
   fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true });
   prefs = createStore('code-prefs', { recents: [], lastSession: '', defaultMode: 'build', defaultModel: MODELS[0], defaultEffort: 'medium', notify: true });
   // 1.1.11: Solid 5 (1M context) becomes the default model for Code, once, for everyone still on the old default

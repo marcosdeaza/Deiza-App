@@ -1230,18 +1230,56 @@
   // ── reproductor DOM ─────────────────────────────────────────────────────────────────────────
   function Player(el, opts) {
     this.el = el;
-    this.opts = Object.assign({ px: 3, crop: null, fluid: false }, opts || {});
+    this.opts = Object.assign({ px: 3, crop: null, fluid: false, motion: 'system' }, opts || {});
     this.scene = null;
     this.t0 = 0;
     this.last = -1;
     this.timer = null;
     this.onEnd = null;
-    this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.motion = this.opts.motion === 'full' || this.opts.motion === 'reduced' ? this.opts.motion : 'system';
+    this.reduced = false;
+    this._motionQuery = null;
+    this._motionListening = false;
+    this._stopped = true;
+    this._motionChanged = () => {
+      if (this.motion !== 'system' || this._stopped) return;
+      this.reduced = this._motionQuery.matches;
+      this.last = -1;
+      this._tick();
+    };
     this.play(this.opts.scene || 'idle');
   }
+  Player.prototype._syncMotion = function () {
+    if (this.motion === 'system' && !this._motionQuery && typeof matchMedia === 'function') {
+      this._motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+    }
+    const q = this._motionQuery;
+    this.reduced = this.motion === 'reduced' || !!(this.motion === 'system' && q && q.matches);
+    const listen = !this._stopped && this.motion === 'system' && !!q;
+    if (listen && !this._motionListening) {
+      if (q.addEventListener) q.addEventListener('change', this._motionChanged);
+      else if (q.addListener) q.addListener(this._motionChanged);
+      this._motionListening = true;
+    } else if (!listen && this._motionListening) {
+      if (q.removeEventListener) q.removeEventListener('change', this._motionChanged);
+      else if (q.removeListener) q.removeListener(this._motionChanged);
+      this._motionListening = false;
+    }
+  };
+  /** Select full animation, the current system preference, or still poses without restarting a scene. */
+  Player.prototype.setMotion = function (mode) {
+    this.motion = mode === 'full' || mode === 'reduced' ? mode : 'system';
+    this.opts.motion = this.motion;
+    this._syncMotion();
+    this.last = -1;
+    if (!this._stopped && this.scene) this._tick();
+    return this;
+  };
   Player.prototype.play = function (scene, onEnd) {
     if (!S[scene]) scene = 'idle';
     if (scene === this.scene && this.timer && !onEnd) return this;
+    this._stopped = false;
+    this._syncMotion();
     this.scene = scene;
     this.onEnd = onEnd || null;
     this.t0 = Date.now();
@@ -1258,20 +1296,31 @@
     const s = S[this.scene];
     const total = sceneDuration(this.scene);
     const t = Date.now() - this.t0;
-    const i = this.reduced ? (s.loop ? 0 : s.frames.length - 1) : frameIndex(this.scene, t);
+    // One-shot effects keep a representative pose for their normal duration. Their final frame
+    // often has no effect left, and ending immediately used to erase the reaction in the same turn.
+    const i = this.reduced ? (s.loop ? 0 : frameIndex(this.scene, total / 2)) : frameIndex(this.scene, t);
     if (i !== this.last) { this.last = i; this._render(i); }
-    if (!s.loop && (t >= total || this.reduced)) {
+    if (!s.loop && t >= total) {
       const cb = this.onEnd; this.onEnd = null;
       if (cb) cb();
       return;
     }
-    if (this.reduced) return;
+    if (this.reduced) {
+      if (!s.loop) this.timer = setTimeout(() => this._tick(), Math.max(30, total - t));
+      return;
+    }
     let acc = 0, next = 100;
     const tt = s.loop ? t % total : t;
     for (const f of s.frames) { acc += f[0]; if (acc > tt) { next = acc - tt; break; } }
     this.timer = setTimeout(() => this._tick(), Math.max(30, next));
   };
-  Player.prototype.stop = function () { clearTimeout(this.timer); this.timer = null; };
+  Player.prototype.stop = function () {
+    this._stopped = true;
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.onEnd = null;
+    this._syncMotion();
+  };
 
   /**
    * Director: turns agent activity into scenes, with occasional gags so it does not loop the same
@@ -1324,6 +1373,10 @@
     clearTimeout(this.gagTimer);
     clearTimeout(this.idleTimer);
     if (this.reacting) return;           // the reaction on screen finishes first, then shows this state
+    this._showState();
+  };
+  Director.prototype._showState = function () {
+    const state = this.state;
     if (state === 'done') { this._oneShot('bloom', () => this.set('idle')); return; }
     if (state === 'error') { this._oneShot('oops', () => this.set(this._afterError || 'thinking')); return; }
     if (state === 'hello') { this._oneShot('hello', () => this.set('idle')); return; }
@@ -1342,15 +1395,18 @@
     this.p.play(scene, () => {
       this.reacting = false;
       if (after) after();
+      if (this.reacting) return;
       this.since = Date.now();
-      this.p.play(this._base(this.state));
-      this._scheduleGag();
+      this._showState();
     });
   };
   Director.prototype.pause = function () { this.paused = true; clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); };
-  Director.prototype.resume = function () {
+  Director.prototype.resume = function (keepScene) {
     this.paused = false;
-    if (!this.reacting) { this.p.play(this._base(this.state)); this._scheduleGag(); }
+    if (!this.reacting) {
+      if (!keepScene) this.p.play(this._base(this.state));
+      this._scheduleGag();
+    }
   };
   Director.prototype._scheduleGag = function () {
     if (this.paused) return;

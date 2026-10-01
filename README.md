@@ -41,7 +41,10 @@ El motor de animación es un solo archivo sin dependencias (`src/renderer/capu.j
 - Tarjetas por herramienta: diffs con líneas añadidas y quitadas, salida de terminal en directo, "Revertir cambios" por respuesta.
 - Panel lateral con el árbol del proyecto, los cambios de la sesión y vista previa de archivos y páginas HTML.
 - Modelo (Liquid 5.1, Solid 5, Gas 4.5) y esfuerzo en cinco niveles, de Bajo a Omnisciente, con el razonamiento del modelo visible y plegable.
-- Dictado por voz, imágenes en el mensaje y tus skills de Deiza aplicadas también al agente.
+- Dictado por voz y tus skills de Deiza aplicadas también al agente.
+- Arrastra archivos, scripts, imágenes, carpetas y ZIP al mensaje. Se adjuntan sin cambiar el proyecto; los ZIP se extraen para que el agente pueda leerlos.
+- Navegador propio con dirección, pestañas, sesión persistente, lectura de páginas, capturas, clics, texto, teclas y desplazamiento. Sirve para probar las apps que crea Code y trabajar con las webs en las que inicias sesión.
+- Control del equipo: lista de aplicaciones, capturas de una ventana o pantalla, foco, clics, texto, teclas y desplazamiento. En macOS necesita los permisos de Grabación de pantalla y Accesibilidad; en Linux la entrada usa `xdotool` en X11 y no está disponible en Wayland. Las capturas y las acciones visuales requieren Solid o Liquid.
 - La conversación se ajusta sola a la ventana de contexto real de cada modelo, y el contexto ocupado se ve siempre junto al compositor.
 - Margen de cortesía: si el uso se acaba a mitad de una tarea, el agente la cierra, deja el trabajo estable y escribe `DEIZA_HANDOFF.md` con el contexto, los cambios y lo pendiente (si no llega, la app lo genera). La barra de uso avisa al 85 % y enseña la semana.
 
@@ -50,6 +53,10 @@ El motor de animación es un solo archivo sin dependencias (`src/renderer/capu.j
 **App**
 - Actualizaciones de un clic: descarga, comprueba la huella sha256 e instala al reiniciar.
 - Ajustes propios, interfaz en español e inglés y el idioma del chat sincronizado con la web.
+
+En el navegador, inicia sesión tú mismo y pide a Code una tarea concreta: leer varios correos, consultar una página de Teams o probar un formulario de tu app. Las páginas se tratan como contenido, y el agente pide aprobación para las acciones de Copilot. Plan permite consultar, pero no clicar, escribir ni guardar capturas. Las tareas se ejecutan durante la conversación; no hay vigilancia en segundo plano.
+
+La terminal [Deiza Code](https://github.com/marcosdeaza/deiza-code) comparte estas herramientas mientras Deiza está abierta. Usa `/attach ruta` para adjuntar archivos y `/computer` para comprobar la conexión.
 
 ## Instalar
 

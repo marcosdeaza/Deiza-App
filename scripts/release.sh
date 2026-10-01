@@ -52,7 +52,7 @@ else
   echo "Windows: sin certificado (SmartScreen avisará en la primera instalación desde el navegador)"
 fi
 
-echo "Compilando Deiza $VERSION…"
+echo "Compilando Deiza ${VERSION}…"
 npx electron-builder --mac --arm64 --x64 --publish never ${MAC_SIGN[@]+"${MAC_SIGN[@]}"}
 npx electron-builder --win --publish never ${WIN_SIGN[@]+"${WIN_SIGN[@]}"}
 npx electron-builder --linux --publish never
