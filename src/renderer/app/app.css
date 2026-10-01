@@ -753,3 +753,18 @@ img.avatar { object-fit: cover; padding: 0; }
 .notice.grace { color: hsl(var(--ochre)); }
 .meter.grace .row span:last-child, .meter.exhausted .row span:last-child { color: hsl(var(--ochre)); }
 .meter.grace .fill { background: hsl(var(--ochre)); }
+button.ctx { background: none; border: 0; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+button.ctx:hover { color: hsl(var(--fg)); background: hsl(var(--muted) / .6); }
+.ctx-pop {
+  position: fixed; z-index: 60; width: 300px; padding: 14px 16px; border-radius: 14px;
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border) / .6); box-shadow: var(--shadow-md, 0 10px 30px rgb(0 0 0 / .35));
+  display: flex; flex-direction: column; gap: 8px;
+}
+.ctx-pop .h { font: 500 14px var(--serif); }
+.ctx-pop .big { font: 13px var(--mono); color: hsl(var(--fg)); }
+.ctx-pop .bar { height: 4px; border-radius: 4px; background: hsl(var(--fg) / .1); overflow: hidden; }
+.ctx-pop .bar i { display: block; height: 100%; background: hsl(var(--ochre)); }
+.ctx-pop p { margin: 0; font-size: 12px; line-height: 1.5; color: hsl(var(--muted-fg)); }
+.ctx-pop .row { display: flex; gap: 8px; margin-top: 2px; }
+#statusline .capu { cursor: pointer; }
+#statusline .inner .capu { pointer-events: auto; }

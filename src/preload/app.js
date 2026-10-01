@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('deiza', {
     remove: inv('code:delete'),
     sessionMenu: inv('code:session-menu'),
     revert: inv('code:revert'),
+    compact: inv('code:compact'),
     fsList: inv('code:fs-list'),
     fsRead: inv('code:fs-read'),
     fsReveal: inv('code:fs-reveal'),

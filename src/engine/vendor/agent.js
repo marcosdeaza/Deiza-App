@@ -15,12 +15,14 @@
 
 const http = require('http');
 const https = require('https');
+const path = require('path');
 const { StringDecoder } = require('string_decoder');
 const { Tools, TOOL_DEFINITIONS, MAX_TOOL_OUTPUT, isCommandRisky, isCommandCatastrophic, previewChange } = require('./tools');
 const { Status, C, createLiveLine, createSpinner, formatBytes, formatDuration, createMarkdownStream, printToolCard } = require('./ui');
 const { buildSystemPrompt } = require('./prompt');
 const { isDeizaHost, contextLimit } = require('./config');
 const { getActiveContextTokens } = require('./session');
+const { capuLabel, ensureHandoff } = require('./mascot');
 
 const MAX_TURNS = 120;             // tool rounds per user request (a long feature is many rounds)
 const MAX_CONTINUATIONS = 6;       // automatic "continue" after an output-limit cut, per request
@@ -144,7 +146,7 @@ function createToolCallFilter() {
  *   onChunk(text)                      assistant prose as it streams
  *   onToolProgress({index, name, args}) called as tool-call arguments accumulate
  */
-async function streamCompletion({ apiBase, apiKey, model, messages, tools, onChunk, onToolProgress, maxTokens = DEFAULT_MAX_TOKENS, temperature = 0.2, signal }) {
+async function streamCompletion({ apiBase, apiKey, model, messages, tools, onChunk, onToolProgress, onQuota, maxTokens = DEFAULT_MAX_TOKENS, temperature = 0.2, signal }) {
   return new Promise((resolve, reject) => {
     let url;
     try {
@@ -195,7 +197,18 @@ async function streamCompletion({ apiBase, apiKey, model, messages, tools, onChu
         res.resume();
         return finish(new Error(`El endpoint ${url.origin} rechazó la clave (${res.statusCode}). Configúrala con --key <clave> o DEIZA_ENDPOINT_KEY, o vuelve al motor nativo con /endpoint deiza.`));
       }
-      if (res.statusCode === 429) { res.resume(); return finish(new Error('USAGE_LIMIT_EXCEEDED')); }
+      if (res.statusCode === 429) {
+        // The server explains when the quota comes back (and that the handoff is in DEIZA_HANDOFF.md)
+        let b = '';
+        res.on('data', c => { b += c; });
+        res.on('end', () => {
+          const e = new Error('USAGE_LIMIT_EXCEEDED');
+          try { const j = JSON.parse(b); e.detail = j.message || ''; e.usage = j.usage || null; } catch { /* plain 429 */ }
+          finish(e);
+        });
+        return;
+      }
+      if (onQuota && String(res.headers['x-deiza-usage-state'] || '') === 'grace') onQuota({ state: 'grace' });
       if (res.statusCode >= 400) {
         let errBody = '';
         res.on('data', c => { errBody += c; });
@@ -252,6 +265,10 @@ async function streamCompletion({ apiBase, apiKey, model, messages, tools, onChu
         try {
           for (const line of lines) {
             const trimmed = line.trim();
+            if (onQuota && trimmed.startsWith(': deiza-usage ')) {
+              try { onQuota(JSON.parse(trimmed.slice(14))); } catch { /* malformed */ }
+              continue;
+            }
             if (!trimmed || trimmed.startsWith(':') || trimmed.startsWith('event:')) continue;
             if (trimmed.startsWith('data:')) handleEvent(trimmed.slice(5).trim());
             else handleEvent(trimmed);
@@ -297,7 +314,9 @@ async function streamCompletion({ apiBase, apiKey, model, messages, tools, onChu
  * Executes streamCompletion with automatic retry on transient connection drops or 502/503/504 errors
  */
 async function streamCompletionWithRetry(params, maxRetries = 10) {
-  // Resilient multi-minute backoff: keeps autonomous overnight runs alive across transient 429/503/drops
+  // Transient: dropped or refused connections (a server restart cuts streams with "aborted"),
+  // gateway errors, "muy solicitado" and the engine's own "interrumpida" notices. Backoff covers
+  // about three minutes so long autonomous runs survive a busy engine.
   const delays = [2000, 3000, 5000, 8000, 12000, 15000, 20000, 25000, 30000, 30000];
   let lastErr;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -313,7 +332,7 @@ async function streamCompletionWithRetry(params, maxRetries = 10) {
       }
       const msg = String(err.message || '');
       const code = String(err.code || '');
-      const isTransient = /timeout|inactividad|interrumpid|cerró antes|aborted|econnreset|econnrefused|epipe|socket|premature|reset|upstream|no se pudo conectar|502|503|504/i.test(msg)
+      const isTransient = /timeout|inactividad|interrumpid|cerró antes|aborted|econnreset|econnrefused|epipe|socket|premature|reset|upstream|no se pudo conectar|solicitado|502|503|504/i.test(msg)
         || /ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN/.test(code)
         || (err.status >= 500 && err.status <= 504);
       if (!isTransient || attempt === maxRetries) {
@@ -689,7 +708,16 @@ function looksUnfinished(text) {
 async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 'build', images = [], quiet = false, signal, onToolModeChange }) {
   let toolMode = cfg.toolMode === 'xml' ? 'xml' : 'native';
   const startedAt = Date.now();
-  const stats = { tools: 0, files: new Set(), commands: 0, prompt: 0, completion: 0, turns: 0 };
+  const stats = { tools: 0, files: new Set(), commands: 0, prompt: 0, completion: 0, turns: 0, cmds: [] };
+  let grace = false;
+  const onQuota = (q) => {
+    if (!q || q.state !== 'grace' || grace) return;
+    grace = true;
+    if (!quiet) {
+      live.clear();
+      console.log(`\n  ${C.gold}Límite de uso alcanzado · margen de cortesía.${C.reset} ${C.gray}Deiza termina lo que está haciendo, lo deja estable y escribe el traspaso en DEIZA_HANDOFF.md.${C.reset}`);
+    }
+  };
 
   const setSystem = () => {
     const sys = buildSystemPrompt(mode, { toolMode });
@@ -735,7 +763,7 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
     const promptLen = JSON.stringify(messages).length;
     const estPromptTok = Math.max(1, Math.ceil(promptLen / 3.8));
     const visible = toolMode === 'xml' ? createToolCallFilter() : (t) => t;
-    const spinner = createSpinner(live, stats.turns === 1 ? 'Pensando' : 'Continuando');
+    const spinner = createSpinner(live, capuLabel('thinking', stats.turns === 1 ? 'Pensando' : 'Continuando'));
     let hasStreamed = false;
     let lastToolIdx = -1;
     let lastToolRender = 0;
@@ -765,6 +793,7 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
         tools: toolMode === 'native' ? TOOL_SPECS : null,
         maxTokens: cfg.maxTokens || (isDeizaHost(cfg.apiBase) ? DEIZA_MAX_TOKENS : DEFAULT_MAX_TOKENS),
         signal,
+        onQuota,
         onChunk: (chunk) => {
           let text = visible(chunk);
           if (!text) return;
@@ -804,6 +833,9 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
         console.log(`  ${C.gold}Este endpoint no soporta function calling: usando el formato XML de herramientas.${C.reset}`);
         stats.turns--;
         continue;
+      }
+      if (err && err.message === 'USAGE_LIMIT_EXCEEDED' && (grace || stats.files.size || stats.turns > 1)) {
+        try { err.handoff = ensureHandoff({ startedAt, userInput, files: [...stats.files], commands: stats.cmds, messages, mode }); } catch { /* best effort */ }
       }
       throw err;
     }
@@ -921,7 +953,7 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
 
       stats.tools++;
       if (['write_file', 'append_file', 'edit_file'].includes(call.name) && call.args.path) stats.files.add(call.args.path);
-      if (call.name === 'run_command') stats.commands++;
+      if (call.name === 'run_command') { stats.commands++; if (stats.cmds.length < 30) stats.cmds.push(String(call.args.command || '').slice(0, 200)); }
       const t0 = Date.now();
       let toolResult;
       let toolTimer = null;
@@ -971,6 +1003,15 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
 
   if (stats.turns >= MAX_TURNS) stopReason = 'max_turns';
 
+  let handoff = null;
+  if (grace) {
+    try { handoff = ensureHandoff({ startedAt, userInput, files: [...stats.files], commands: stats.cmds, messages, mode }); } catch { handoff = null; }
+    if (handoff && !quiet) {
+      if (handoff.path) console.log(`  ${C.gold}Traspaso ${handoff.by === 'agent' ? 'escrito por Deiza' : 'guardado'} en ${path.relative(process.cwd(), handoff.path) || handoff.path}.${C.reset} ${C.gray}Pégalo en la siguiente sesión (o en otra IA) para seguir.${C.reset}`);
+      else if (handoff.content) console.log(`\n${handoff.content}`);
+    }
+  }
+
   if (!quiet) {
     const elapsed = formatDuration(Date.now() - startedAt);
     const parts = [];
@@ -992,6 +1033,7 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
     elapsedMs: Date.now() - startedAt,
     elapsedText: formatDuration(Date.now() - startedAt),
     usage: { promptTokens: stats.prompt, completionTokens: stats.completion, totalTokens: stats.prompt + stats.completion },
+    handoff,
   };
 }
 

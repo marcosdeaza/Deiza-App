@@ -6,3 +6,4 @@ test/shots/
 .release.env
 test/_*.js
 __pycache__/
+scripts/capu/out/

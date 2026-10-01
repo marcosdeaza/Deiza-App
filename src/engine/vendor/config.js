@@ -4,7 +4,7 @@
  *
  * Native models (context window in tokens):
  *   - deiza-liquid:   Liquid 5.1 (default, balanced and agentic, 256K)
- *   - deiza-solid:    Solid 5    (the most capable: methodical, coding and research, reads images, 256K)
+ *   - deiza-solid:    Solid 5    (the most capable: methodical, coding and research, reads images, 1M)
  *   - deiza-gas:      Gas 4.5    (fastest and lightest, 128K)
  * Vainilla was retired in 2.2.0; saved configs that still name it open Gas.
  *
@@ -22,7 +22,7 @@ const DEIZA_DIR = path.join(os.homedir(), '.deiza');
 const CONFIG_FILE = path.join(DEIZA_DIR, 'config.json');
 const SESSIONS_DIR = path.join(DEIZA_DIR, 'sessions');
 
-const VERSION = '2.2.1';
+const VERSION = '2.3.2';
 const DEFAULT_DEIZA_API = 'https://deiza.org';
 const DEFAULT_MODEL = 'deiza-liquid';
 
@@ -79,7 +79,7 @@ const MODEL_INFO = {
     id: 'deiza-solid',
     shortName: 'solid',
     name: 'Deiza Solid 5',
-    badge: 'Solid 5 · El más capaz',
+    badge: 'Solid 5 · 1M de contexto',
     tag: 'SOLID 5',
     desc: 'El más capaz y metódico. Planifica antes de tocar el código y verifica cada paso: arquitectura, refactorizaciones grandes, depuración difícil e investigación.',
     tier: 'Razonamiento',
@@ -104,7 +104,7 @@ const MODEL_INFO = {
 // the model in use; custom endpoints get a conservative 128K.
 const CONTEXT_LIMITS = {
   'deiza-liquid': 262144,
-  'deiza-solid': 262144,
+  'deiza-solid': 1048576,
   'deiza-gas': 131072,
 };
 function contextLimit(model) {

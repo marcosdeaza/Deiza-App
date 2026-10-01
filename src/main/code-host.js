@@ -567,6 +567,22 @@ function setupIpc(c) {
     menu.popup({ window: ctx.getWindow() || undefined, callback: () => setTimeout(() => resolve(null), 50) });
   }));
   handle('code:revert', ({ id, turnId } = {}) => revert(id, turnId));
+  // Manual compaction (the agent also compacts on its own at 70 % of the window)
+  handle('code:compact', ({ id } = {}) => {
+    if (running.has(id)) return { error: 'busy' };
+    const doc = loadDoc(id);
+    if (!doc || !Array.isArray(doc.messages)) return { error: 'empty' };
+    const { compactContext } = require('../engine/vendor/agent');
+    const { getActiveContextTokens } = require('../engine/vendor/session');
+    const r = compactContext(doc.messages, { force: true });
+    if (!r.compacted) return { compacted: false, reason: r.reason };
+    const used = getActiveContextTokens(doc.messages);
+    emit(id, { t: 'notice', text: `Contexto compactado: de ${Number(r.beforeTokens).toLocaleString('es')} a ${Number(r.afterTokens).toLocaleString('es')} tokens.` });
+    doc.context = { ...(doc.context || { limit: 262144 }), used, estimated: true };
+    ctx?.send('code:event', { id, seq: 0, ev: { t: 'context_set', used, limit: doc.context.limit } });
+    saveNow(id);
+    return { compacted: true, before: r.beforeTokens, after: r.afterTokens };
+  });
   handle('code:fs-list', ({ id, rel } = {}) => listDir(id, rel));
   handle('code:fs-read', ({ id, rel } = {}) => readFile(id, rel));
   handle('code:fs-reveal', ({ id, rel } = {}) => {

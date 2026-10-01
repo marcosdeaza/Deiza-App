@@ -362,6 +362,15 @@
     [500, pose({ armR: 'down' })],
   ] };
 
+  // mirando cómo escribes (el compositor queda abajo a la derecha)
+  S.watch = { loop: true, frames: [
+    [1500, pose({ eyes: 'downright' })],
+    [110, pose({ eyes: 'closed' })],
+    [1300, pose({ eyes: 'downright' })],
+    [600, pose({ eyes: 'down' })],
+    [900, pose({ eyes: 'downright', top: 'twitch' })],
+  ] };
+
   // pensando: mira arriba y se encienden tres puntos
   const dots = (n) => (g, b) => {
     for (let i = 0; i < 3; i++) stamp(g, b.x0 + 19 + i * 4, b.y0 + 2 - i, i < n ? P.dot : P.dotDim);
@@ -734,7 +743,7 @@
   Director.prototype._base = function (state) {
     return {
       idle: 'idle', thinking: 'thinking', writing: 'typing', reading: 'reading', running: 'waiting',
-      debugging: 'duck', grace: 'wilt', exhausted: 'sleep', done: 'idle', error: 'idle',
+      debugging: 'duck', grace: 'wilt', exhausted: 'sleep', done: 'idle', error: 'idle', watch: 'watch',
     }[state] || 'idle';
   };
   Director.prototype.set = function (state) {
@@ -754,7 +763,7 @@
   Director.prototype._scheduleGag = function () {
     const st = this.state;
     const gags = {
-      idle: [['coffee', 7000], ['duck', 5000]],
+      idle: [['coffee', 7000], ['duck', 5000], ['focus', 6000], ['can', 0], ['hello', 0], ['reading', 4000]],
       thinking: [['coffee', 6000], ['can', 0]],
       writing: [['focus', 6000], ['coffee', 5000]],
       running: [['coffee', 6000], ['can', 0], ['focus', 5000]],
@@ -765,7 +774,7 @@
       this.idleTimer = setTimeout(() => { if (this.state === 'idle') this.p.play('sleep'); }, this.opts.sleepAfter);
     }
     if (!gags) return;
-    const wait = st === 'idle' ? 18000 + Math.random() * 20000 : 9000 + Math.random() * 9000;
+    const wait = st === 'idle' ? 14000 + Math.random() * 22000 : 9000 + Math.random() * 9000;
     this.gagTimer = setTimeout(() => {
       if (this.state !== st) return;
       const [name, dur] = gags[Math.floor(Math.random() * gags.length)];
@@ -773,6 +782,14 @@
       if (dur) { this.p.play(name); this.gagTimer = setTimeout(back, dur); }
       else this.p.play(name, back);
     }, wait);
+  };
+  /** A gag right now (a click on Capu), then back to whatever it was doing. */
+  Director.prototype.poke = function () {
+    const st = this.state;
+    const pick = ['hello', 'can', 'oops', 'bloom'][Math.floor(Math.random() * 4)];
+    clearTimeout(this.gagTimer);
+    clearTimeout(this.idleTimer);
+    this.p.play(pick, () => { if (this.state === st) { this.p.play(this._base(st)); this._scheduleGag(); } });
   };
   Director.prototype.stop = function () { clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); this.p.stop(); };
 

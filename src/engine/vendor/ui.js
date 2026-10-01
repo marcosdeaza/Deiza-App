@@ -407,6 +407,7 @@ const COMMANDS_REGISTRY = [
   { cmd: '/init', args: '', desc: 'Crear directivas .deizarules en la raíz del repo', cat: 'Proyecto' },
   { cmd: '/clear', args: '', desc: 'Limpiar el contexto de la conversación actual', cat: 'Sesión' },
   { cmd: '/help', args: '', desc: 'Ver todos los comandos', cat: 'Ayuda' },
+  { cmd: '/capu', args: '', desc: 'Saluda a Capu, la mascota de Deiza Code', cat: 'Ayuda' },
   { cmd: '/exit', args: '', desc: 'Salir de Deiza Code', cat: 'Sesión' },
 ];
 

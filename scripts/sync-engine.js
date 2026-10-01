@@ -22,7 +22,7 @@ if (!src) {
   process.exit(1);
 }
 
-const MODULES = ['config.js', 'ui.js', 'tools.js', 'context.js', 'prompt.js', 'session.js', 'agent.js'];
+const MODULES = ['config.js', 'ui.js', 'tools.js', 'context.js', 'prompt.js', 'session.js', 'agent.js', 'mascot.js'];
 const out = path.join(__dirname, '../src/engine/vendor');
 fs.mkdirSync(out, { recursive: true });
 for (const m of MODULES) fs.copyFileSync(path.join(src, 'src', m), path.join(out, m));

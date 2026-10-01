@@ -105,7 +105,7 @@ const itemEls = new Map();
 // Code models and effort levels (ids match the engine)
 const MODELS = [
   { id: 'deiza-omniscient', name: 'Liquid 5.1', tag: 'Equilibrado y agéntico', desc: 'El más equilibrado para programar. Ve imágenes.', badge: 'Recomendado' },
-  { id: 'deiza-solid-5', name: 'Solid 5', tag: 'El más capaz', desc: 'Metódico: planifica, verifica y resuelve lo difícil. Ve imágenes.', badge: 'Nuevo' },
+  { id: 'deiza-solid-5', name: 'Solid 5', tag: 'El más capaz', desc: 'Metódico: planifica, verifica y resuelve lo difícil. Contexto de 1M, ve imágenes.', badge: 'Nuevo' },
   { id: 'deiza-gas-4.5', name: 'Gas 4.5', tag: 'Instantáneo', desc: 'El más rápido, para cambios pequeños.', badge: null },
 ];
 const EFFORTS = [
@@ -963,9 +963,11 @@ const capuEnabled = () => localStorage.getItem('deiza:capu') !== '0';
 const capu = { el: null, player: null, director: null, fails: 0, grace: false };
 function capuInit() {
   if (capu.el) return;
-  capu.el = h('div', { class: 'capu', title: 'Capu' });
+  capu.el = h('div', { class: 'capu', title: 'Capu', role: 'button', 'aria-label': 'Capu' });
   capu.player = new Capu.Player(capu.el, { px: 2, crop: CAPU_BOX });
-  capu.director = new Capu.Director(capu.player, { sleepAfter: 45000 });
+  capu.director = new Capu.Director(capu.player, { sleepAfter: 120000 });
+  // a click on Capu: an instant gag
+  capu.el.addEventListener('click', () => capu.director.poke());
 }
 function capuSet(state) {
   capuInit();
@@ -989,12 +991,19 @@ function renderStatus() {
   line.innerHTML = '';
   clearInterval(S.statusTimer);
   const glow = !(S.cur && S.cur.running) && S.afterglow > Date.now();
-  $('#thread').classList.toggle('has-status', Boolean(S.cur && (S.cur.running || glow)));
-  if (!S.cur || (!S.cur.running && !glow)) return;
   const withCapu = capuEnabled();
+  // Capu stays by the composer for the whole session, not only while the agent works
+  $('#thread').classList.toggle('has-status', Boolean(S.cur && (S.cur.running || glow || withCapu)));
+  if (!S.cur || (!S.cur.running && !glow && !withCapu)) return;
   if (withCapu) capuInit();
   if (glow) {
     if (withCapu) line.append(h('div', { class: 'inner done' }, capu.el, h('span', { text: S.afterglowText || T('Hecho') })));
+    return;
+  }
+  if (!S.cur.running) {
+    // resting: no label, just Capu (it blinks, looks around, has a coffee now and then, naps)
+    if (!capu.grace && ['thinking', 'writing', 'reading', 'running', 'debugging', 'error'].includes(capu.director.state)) capuSet('idle');
+    line.append(h('div', { class: 'inner rest' }, capu.el));
     return;
   }
   const st = S.status || { kind: 'thinking', text: 'Pensando', since: Date.now() };
@@ -1188,6 +1197,12 @@ function renderComposer(hero) {
     scrollToBottom(true);
   };
 
+  ta.addEventListener('input', () => {
+    if (hero || !capuEnabled() || !capu.director || (S.cur && S.cur.running) || capu.grace) return;
+    if (capu.director.state !== 'watch') capu.director.set('watch');
+    clearTimeout(capu.watchTimer);
+    capu.watchTimer = setTimeout(() => { if (capu.director.state === 'watch') capu.director.set('idle'); }, 4000);
+  });
   ta.addEventListener('keydown', (e) => {
     if (dict && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); dict.finish(true); return; }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -1220,7 +1235,7 @@ function renderComposer(hero) {
 const kTok = (n) => (n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
 function ctxMeter() {
   const c = S.cur && S.cur.context;
-  const el = h('div', { class: 'ctx' });
+  const el = h('button', { class: 'ctx', type: 'button', onclick: (e) => ctxPopover(e.currentTarget) });
   if (!c || !c.limit) {
     el.title = T('Contexto de la sesión: se mide en la primera respuesta.');
     el.append(ctxRing(0), h('span', { text: T('Contexto') }));
@@ -1232,6 +1247,32 @@ function ctxMeter() {
   el.title = T('Contexto: {u} de {l} tokens ({p} %). Deiza compacta la conversación sola al 70 %.', { u: num(c.used), l: num(c.limit), p: pct });
   el.append(ctxRing(pct), h('span', { text: `${pct} % · ${kTok(c.used)} / ${kTok(c.limit)}` }));
   return el;
+}
+function ctxPopover(anchor) {
+  const old = document.querySelector('.ctx-pop');
+  if (old) { old.remove(); return; }
+  const c = (S.cur && S.cur.context) || {};
+  const pct = c.limit ? Math.min(100, Math.round((c.used / c.limit) * 100)) : 0;
+  const running = Boolean(S.cur && S.cur.running);
+  const pop = h('div', { class: 'ctx-pop', role: 'dialog' },
+    h('div', { class: 'h', text: T('Contexto de la sesión') }),
+    h('div', { class: 'big', text: c.limit ? `${num(c.used)} / ${num(c.limit)}` : '—' }),
+    h('div', { class: 'bar' }, h('i', { style: { width: `${pct}%` } })),
+    h('p', { text: T('Es lo que el modelo relee en cada paso: tus mensajes, el código que ha leído y la salida de los comandos. Al llegar al 70 % Deiza resume lo antiguo sola; compactar ahora libera espacio y abarata cada paso.') }),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary small', disabled: running || !c.used ? 'disabled' : null, onclick: async () => {
+        const r = await deiza.code.compact({ id: S.cur.id });
+        pop.remove();
+        if (r && r.compacted) toast(T('Contexto compactado'));
+        else toast(r && r.error === 'busy' ? T('Espera a que termine la petición') : T('Todavía no hay nada que compactar'));
+      } }, T('Compactar ahora')),
+      h('button', { class: 'btn ghost small', onclick: () => pop.remove() }, T('Cerrar'))));
+  document.body.append(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.right = `${Math.max(12, window.innerWidth - r.right)}px`;
+  pop.style.bottom = `${window.innerHeight - r.top + 8}px`;
+  const off = (e) => { if (!pop.contains(e.target) && e.target !== anchor) { pop.remove(); document.removeEventListener('mousedown', off, true); } };
+  setTimeout(() => document.addEventListener('mousedown', off, true), 0);
 }
 function ctxRing(pct) {
   const r = 6, c = 2 * Math.PI * r;
@@ -1977,6 +2018,10 @@ function initResizer() {
 
 function onCodeEvent({ id, seq, ev }) {
   if (ev && ev.t === 'quota') { applyQuota(ev); return; }
+  if (ev && ev.t === 'context_set') {
+    if (S.cur && S.cur.id === id) { S.cur.context = { ...(S.cur.context || {}), used: ev.used, limit: ev.limit, estimated: true }; updateCtxMeter(); }
+    return;
+  }
   if (!S.cur || S.cur.id !== id) {
     if (ev.t === 'turn_end') refreshSessions();
     return;
