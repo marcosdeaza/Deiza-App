@@ -53,6 +53,12 @@
     j: '#9C7046', // cartón en sombra
     g: '#F7D46A', // oro claro (aura)
     B: '#7FB3C9', // agua (solo en el agua de Liquid)
+    h: '#FFF6CF', // oro blanco (núcleo del aura, destello)
+    a: '#F7D46A4D', // aura translúcida
+    A: '#FFE58C99', // corriente del aura
+    e: '#F2FBFF', // rayo
+    E: '#86D3F2', // rayo en sombra
+    T: '#4FD1C5', // ojos Super Saiyan
   };
 
   // ── silueta base 8×10 (1 píxel = 1 píxel gordo) ─────────────────────────────────────────────
@@ -73,20 +79,22 @@
     return rows.map((r) => r.map((c) => (c === '.' ? null : c)));
   }
 
-  // Global look modifiers set by the host app (MOD.saiyan: golden hair + aura on every scene).
-  const MOD = { saiyan: false };
-
   // ── escena a resolución fina ────────────────────────────────────────────────────────────────
   const W = 54;
   const H = 36;
   const BX = 16;  // borde izquierdo del cuerpo (fino)
   const BY = 8;   // punta del pétalo alto (fino)
 
-  function blank() {
+  // A frame grid. Scenes that burst out of the stage (fx) get `oy` extra rows above row 0;
+  // drawing code works in raw rows, everything else reads scene coordinates through at().
+  function blank(oy) {
+    oy = oy || 0;
     const g = [];
-    for (let y = 0; y < H; y++) g.push(new Array(W).fill(null));
+    for (let y = 0; y < H + oy; y++) g.push(new Array(W).fill(null));
+    g.oy = oy;
     return g;
   }
+  function at(g, x, y) { const r = g[y + (g.oy || 0)]; return (r && r[x]) || null; }
   function put(g, x, y, c) {
     if (x < 0 || y < 0 || x >= g[0].length || y >= g.length) return;
     g[y][x] = c === '_' ? null : c;
@@ -146,17 +154,37 @@
       'XX..XXXXXXXXXXXXXXXX',
     ],
   };
-  // Super Saiyan: hair of golden petal spikes
+  // Super Saiyan: the petals turn into golden spikes; the tallest is still the one on the left
   TOPS.saiyan = [
-    '.....g........g.....',
-    '..Y..gY......Yg...Y.',
-    '.YY..YYY....YYY..YY.',
-    '.YYY.YYYY..YYYY.YYY.',
-    '..YYYYYYYYYYYYYYYY..',
-    '..YYYYYYYYYYYYYYYY..',
-    '..yYYYYYYYYYYYYYYy..',
+    '....h.................',
+    '...hg.................',
+    '...gY.......h.........',
+    '..gYY......hg.........',
+    '..gYYy....gYg.....h...',
+    'h.gYYy...gYYy....hg...',
+    'gYgYYYy.gYYYy...gYy..h',
+    '.gYYYYYygYYYYy.gYYy.gY',
+    '..gYYYYYYYYYYYgYYYYgYy',
+    '..yYYYYYYYYYYYYYYYYYy.',
+    '...yYYYYYYYYYYYYYYYy..',
+    '...yyYYYYYYYYYYYYYyy..',
   ];
-  const TOP_OFF = { bloom: [-2, -2], wilt: [-4, 0], saiyan: [-2, -3] };
+  // same hair a moment later: the tips sway in the aura
+  TOPS.saiyan2 = [
+    '...h..................',
+    '...hg.................',
+    '..hgY........h........',
+    '..gYY.......hg........',
+    '..gYYy....hgYg...h....',
+    '.hgYYy...gYYYy...hg...',
+    'hYgYYYy.gYYYy...gYy...',
+    '.gYYYYYygYYYYy.gYYy.hY',
+    '..gYYYYYYYYYYYgYYYYgYy',
+    '..yYYYYYYYYYYYYYYYYYy.',
+    '...yYYYYYYYYYYYYYYYy..',
+    '...yyYYYYYYYYYYYYYyy..',
+  ];
+  const TOP_OFF = { bloom: [-2, -2], wilt: [-4, 0], saiyan: [-3, -8], saiyan2: [-3, -8] };
 
   // Eye holes (fine coords relative to the body's top-left corner, below the top rows).
   const EY = 8;   // top row of the eyes (relative to BY)
@@ -208,7 +236,7 @@
     const x0 = BX + (o.dx || 0);
     const sq = o.squash || 0;
     const y0 = BY + (o.dy || 0) + sq;
-    const tk = (MOD.saiyan && (!o.top || o.top === 'bud' || o.top === 'twitch')) ? 'saiyan' : (o.top || 'bud');
+    const tk = o.top || 'bud';
     const off = TOP_OFF[tk] || [0, 0];
     stamp(g, x0 + off[0], y0 + off[1], TOPS[tk]);
     fill(g, x0, y0 + 4, 16, 14 - sq, 'X');
@@ -685,35 +713,6 @@
     confetti: ['R...Y..G', '..G...W.', '.Y..R...', 'W....G.R'],
   });
 
-  // the golden aura of Super Saiyan: a flickering outline around Capu (n = thickness)
-  function aura(g, k, n) {
-    const H2 = g.length, W2 = g[0].length;
-    const isBody = (c) => c === 'X' || c === 'x' || c === 'Y' || c === 'y' || c === 'g';
-    for (let pass = 0; pass < (n || 1); pass++) {
-      const marks = [];
-      // holes inside the silhouette (the eyes) are not outside: body on both sides of the row and column
-      const enclosed = (x, y) => {
-        let l = false, r = false, u = false, d = false;
-        for (let i = 1; i <= 6; i++) {
-          if (g[y][x - i]) l = true;
-          if (g[y][x + i]) r = true;
-          if (g[y - i] && g[y - i][x]) u = true;
-          if (g[y + i] && g[y + i][x]) d = true;
-        }
-        return l && r && u && d;
-      };
-      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
-        if (g[y][x] || enclosed(x, y)) continue;
-        const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
-          const c = g[y + dy] && g[y + dy][x + dx];
-          return pass === 0 ? isBody(c) : (c === 'g' || c === 'O');
-        });
-        if (nb && ((x * 3 + y * 5 + k) % (pass === 0 ? 3 : 2)) !== 0) marks.push([x, y]);
-      }
-      for (const [x, y] of marks) g[y][x] = pass === 0 ? 'g' : 'O';
-    }
-  }
-
   // walking along the input bar (the host app moves the sprite and mirrors it to walk left)
   S.walk = { loop: true, frames: [
     [150, pose({ eyes: 'right', legs: 'stepL' })],
@@ -781,24 +780,172 @@
   S.high = { loop: false, frames: [[220, high(0)], [220, high(1)], [220, high(2)], [220, high(3)], [500, high(4)]] };
   S.ultra = { loop: false, frames: [[160, high(0, 1)], [160, high(1, 1)], [160, high(2, 1)], [160, high(3, 1)], [160, high(4, 1)], [160, high(5, 1)], [500, high(6, 1)]] };
 
-  // Omnisciente: transformación Super Saiyan (luego se queda con el pelo dorado y el aura)
-  function ssj(k) {
-    return (g) => {
-      const charged = k >= 4;
-      const shake = k >= 2 && k <= 8 ? (k % 2 ? 1 : -1) : 0;
-      const b = body(g, { top: charged ? 'saiyan' : 'bud', eyes: k < 2 ? 'squint' : (k < 6 ? 'wide' : 'open'), squash: k < 2 ? 2 : 0,
-        dx: shake, armL: k >= 4 && k < 9 ? 'down' : undefined, armR: k >= 4 && k < 9 ? 'down' : undefined });
-      if (k >= 2) aura(g, k, k === 6 || k === 7 ? 2 : 1);
-      if (k >= 3 && k <= 9) {
-        stamp(g, b.x0 - 9 + (k % 2), b.y0 + 3 + (k % 3), P.bolt);
-        stamp(g, b.x0 + 23 - (k % 2), b.y0 + 6 - (k % 3), P.bolt);
+  // ── Omnisciente: transformación Super Saiyan ────────────────────────────────────────────────
+  // A moment, not a mode: Capu charges, explodes into a golden flame aura that bursts out of the
+  // stage (the scene keeps SSJ_OY extra rows above row 0), crackles for a while and powers down.
+  const SSJ_OY = 18;
+  const hash = (a, b) => (((a + 11) * 73856093) ^ ((b + 7) * 19349663)) >>> 0;
+  const tri = (u) => 1 - Math.abs((u - Math.floor(u)) * 2 - 1);
+  const sp = (g, x, y, c) => put(g, x, y + SSJ_OY, c);   // put in scene coordinates
+
+  // the flame, in scene coordinates: power 0-1 grows it, k moves the tongues
+  function flameMask(k, power) {
+    const cx = BX + 7.5, cy = 16;
+    const rx = 21 * power, ryUp = 22 * power, ryDown = 17;
+    const tongues = 14 * power;
+    const m = [];
+    for (let y = -SSJ_OY; y < 28; y++) {
+      const row = new Array(W).fill(false);
+      for (let x = 0; x < W; x++) {
+        const dx = x - cx;
+        const r = rx + (power > 0.3 ? 1.4 * Math.sin(y * 0.55 + k * 1.9) : 0);
+        if (r <= 0 || Math.abs(dx) > r) continue;
+        const f = 1 - (dx / r) * (dx / r);
+        if (y >= cy) { row[x] = (y - cy) <= ryDown * Math.sqrt(f); continue; }
+        // above the middle: a dome with pointed tongues, taller in the centre, each on its own beat
+        const u = dx / 5.5 + k * 0.37;
+        const lift = tongues * f * (0.5 + 0.5 * ((hash(Math.floor(u), k >> 1) % 100) / 100)) * Math.pow(tri(u), 1.5);
+        row[x] = y >= cy - ryUp * Math.sqrt(f) - lift;
       }
-      if (k === 6) { stamp(g, b.x0 - 6, b.y0 - 6, P.spark); stamp(g, b.x0 + 19, b.y0 - 6, P.spark); }
+      m.push(row);
+    }
+    return m;
+  }
+
+  // paints the aura behind Capu in layers, like the flame sprites of the old fighting games: a
+  // dithered ochre rim, gold, light gold with energy streaming upwards and a white-hot halo around
+  // a thin dark outline that keeps the golden hair readable (`shape` = Capu alone on a spare grid)
+  function paintAura(g, k, power, shape, solid) {
+    const m = flameMask(k, power);
+    const inside = (x, y) => { const r = m[y + SSJ_OY]; return !!(r && r[x]); };
+    // depth: how many erosions each pixel survives (0 = on the edge), capped at 4
+    let cur = m, depth = m.map((r) => r.map((v) => (v ? 0 : -1)));
+    for (let d = 1; d <= 4; d++) {
+      const nx = cur.map((r, j) => r.map((v, i) => v && i > 0 && i < W - 1 && j > 0 && j < cur.length - 1 &&
+        r[i - 1] && r[i + 1] && cur[j - 1][i] && cur[j + 1][i]));
+      nx.forEach((r, j) => r.forEach((v, i) => { if (v) depth[j][i] = d; }));
+      cur = nx;
+    }
+    const near = (x, y, d) => {
+      if (!shape) return false;
+      for (let j = -d; j <= d; j++) for (let i = -d; i <= d; i++) if (at(shape, x + i, y + j)) return true;
+      return false;
+    };
+    for (let y = -SSJ_OY; y < 28; y++) for (let x = 0; x < W; x++) {
+      if (!inside(x, y)) continue;
+      if (solid) { sp(g, x, y, 'h'); continue; }
+      const d = depth[y + SSJ_OY][x];
+      const odd = (x + y + k) % 2 === 0;
+      if (near(x, y, 1)) { sp(g, x, y, 'y'); continue; }
+      if (near(x, y, 3)) { sp(g, x, y, 'h'); continue; }
+      if (near(x, y, 4)) { sp(g, x, y, odd ? 'h' : 'g'); continue; }
+      if (d === 0) { if (odd) sp(g, x, y, 'Y'); continue; }
+      if (d === 1) { sp(g, x, y, 'Y'); continue; }
+      if (d === 2) { sp(g, x, y, odd ? 'Y' : 'g'); continue; }
+      const lane = hash(x, 3) % 5;
+      sp(g, x, y, x % 2 === 0 && (y + 96 + k * 3 + lane * 2) % 8 < 3 ? 'h' : 'g');
+    }
+  }
+
+  // a lightning crack: zigzag down from (x, y), scene coordinates
+  function zap(g, x, y, n, seed) {
+    let cx = x;
+    for (let i = 0; i < n; i++) {
+      sp(g, cx, y + i, 'e');
+      if (i % 3 === 1) sp(g, cx + ((seed >> 3) & 1 ? 1 : -1), y + i, 'E');
+      cx += (seed >> (i % 12)) & 1 ? 1 : -1;
+    }
+  }
+  function zaps(g, k, count) {
+    for (let j = 0; j < count; j++) {
+      const s = hash(j, k);
+      if (s % 4 === 0) continue;
+      const left = j % 2 === 0;
+      zap(g, left ? 3 + (s % 11) : 32 + (s % 13), -12 + ((s >> 4) % 26), 5 + ((s >> 9) % 6), s >> 2);
+    }
+  }
+
+  // rocks torn from the ground float up past Capu
+  function rocks(g, k) {
+    const spots = [4, 9, 14, 33, 38, 44, 7, 41];
+    spots.forEach((x, i) => {
+      const y = 26 - ((k * 3 + i * 5) % 30);
+      const big = i < 6;
+      sp(g, x + (k + i) % 2, y, 't');
+      if (big) { sp(g, x + 1 + (k + i) % 2, y, 'd'); sp(g, x + (k + i) % 2, y + 1, 'd'); sp(g, x + 1 + (k + i) % 2, y + 1, 'D'); }
+    });
+  }
+
+  function tealEyes(g, b) {
+    for (const [ex, ey, w, h] of eyeRects('open')) {
+      fill(g, b.x0 + ex, b.y0 + ey, w, h, 'T');
+      put(g, b.x0 + ex, b.y0 + ey, 'e');
+    }
+  }
+
+  function ssjCharge(k) {
+    return (g) => {
+      const o = { dy: SSJ_OY, dx: k === 0 ? 0 : (k % 2 ? 1 : -1), squash: k === 0 ? 2 : 1, eyes: 'squint', armL: 'down', armR: 'down' };
+      if (k >= 3) { const sh = blank(SSJ_OY); body(sh, o); paintAura(g, k, 0.14 + 0.07 * (k - 3), sh); }
+      // energy gathering: sparks spiral in towards Capu
+      for (let j = 0; j < 10; j++) {
+        const ang = j * Math.PI / 5 + k * 0.5;
+        const r = 26 - k * 4;
+        sp(g, Math.round(BX + 7.5 + Math.cos(ang) * r), Math.round(15 + Math.sin(ang) * r * 0.75), j % 2 ? 'h' : 'e');
+      }
+      // pebbles start to float and dust kicks up at the feet
+      for (const [x, i] of [[8, 0], [12, 1], [36, 2], [41, 3]]) sp(g, x, 27 - Math.max(0, k - 1 - (i % 2)), 't');
+      if (k >= 1) { sp(g, 12, 27, 'w'); sp(g, 13, 26, 'w'); sp(g, 34, 27, 'w'); sp(g, 33, 26, 'w'); }
+      const b = body(g, o);
+      if (k === 3 || k === 5) tint(g, b.x0 - 1, b.y0, 18, 4, 'X', 'Y');
     };
   }
-  S.saiyan = { loop: false, frames: [
-    [260, ssj(0)], [200, ssj(1)], [110, ssj(2)], [110, ssj(3)], [110, ssj(4)], [110, ssj(5)],
-    [180, ssj(6)], [180, ssj(7)], [120, ssj(8)], [120, ssj(9)], [600, ssj(10)],
+
+  function ssjBurst(k) {
+    return (g) => {
+      const o = { dy: SSJ_OY, top: 'saiyan', eyes: 'wide', armL: 'down', armR: 'down' };
+      const sh = blank(SSJ_OY); body(sh, o);
+      paintAura(g, k, k === 0 ? 0.85 : 1.08, sh, k === 0);
+      // shockwave: rays out to the edges of the stage
+      for (let j = 0; j < 16; j++) {
+        const ang = j * Math.PI / 8 + 0.2;
+        for (let r = k === 0 ? 14 : 22; r < 44; r += k === 0 ? 1 : 2) {
+          const y = Math.round(12 + Math.sin(ang) * r * 0.8);
+          if (y < 28) sp(g, Math.round(BX + 7.5 + Math.cos(ang) * r), y, r % 4 ? 'h' : 'g');
+        }
+      }
+      body(g, o);
+    };
+  }
+
+  function ssjFull(k) {
+    return (g) => {
+      const o = { dy: SSJ_OY, top: (k >> 1) % 2 ? 'saiyan2' : 'saiyan', eyes: 'open', armL: 'down', armR: 'down' };
+      const sh = blank(SSJ_OY); body(sh, o);
+      paintAura(g, k, 1, sh);
+      zaps(g, k, 3);
+      rocks(g, k);
+      const b = body(g, o);
+      tealEyes(g, b);
+    };
+  }
+
+  function ssjDown(k) {
+    return (g) => {
+      const o = { dy: SSJ_OY, top: k === 0 ? 'saiyan' : 'bud', eyes: ['open', 'half', 'closed', 'open'][k], armL: k < 2 ? 'down' : undefined, armR: k < 2 ? 'down' : undefined, squash: k === 2 ? 1 : 0 };
+      if (k < 2) { const sh = blank(SSJ_OY); body(sh, o); paintAura(g, k, k === 0 ? 0.55 : 0.22, sh); }
+      const b = body(g, o);
+      if (k === 0) tealEyes(g, b);
+      if (k === 1) tint(g, b.x0 - 1, b.y0, 18, 4, 'X', 'Y');
+      if (k >= 1) { stamp(g, b.x0 + 1, b.y0 - 6 + k, P.steam1); stamp(g, b.x0 + 12, b.y0 - 5 + k, P.steam2); }
+    };
+  }
+
+  S.saiyan = { loop: false, fx: true, oy: SSJ_OY, frames: [
+    [300, ssjCharge(0)], [110, ssjCharge(1)], [110, ssjCharge(2)], [100, ssjCharge(3)], [90, ssjCharge(4)], [90, ssjCharge(5)],
+    [70, ssjBurst(0)], [110, ssjBurst(1)],
+    ...Array.from({ length: 16 }, (_, k) => [95, ssjFull(k)]),
+    [150, ssjDown(0)], [160, ssjDown(1)], [260, ssjDown(2)], [380, ssjDown(3)],
   ] };
   // vuelve a la normalidad (al bajar el esfuerzo)
   S.calm = { loop: false, frames: [[160, pose({ eyes: 'closed', squash: 1 })], [160, pose({ eyes: 'half' })], [300, pose({})]] };
@@ -982,24 +1129,26 @@
   }
   function frameAt(name, i) {
     const s = S[name] || S.idle;
-    const g = blank();
+    const g = blank(s.oy);
     s.frames[Math.max(0, Math.min(i, s.frames.length - 1))][1](g);
-    if (MOD.saiyan && name !== 'saiyan' && name !== 'calm' && name !== 'solid') aura(g, i, 1);
     return g;
   }
-  function setMod(m) { Object.assign(MOD, m || {}); }
   function frame(name, t) { return frameAt(name, frameIndex(name, t || 0)); }
 
   function bbox(grids) {
     let x1 = Infinity, y1 = Infinity, x2 = -1, y2 = -1;
-    for (const g of grids) for (let y = 0; y < g.length; y++) for (let x = 0; x < g[y].length; x++) if (g[y][x]) {
+    for (const g of grids) for (let gy = 0; gy < g.length; gy++) for (let x = 0; x < g[gy].length; x++) if (g[gy][x]) {
+      const y = gy - (g.oy || 0);
       if (x < x1) x1 = x; if (y < y1) y1 = y; if (x > x2) x2 = x; if (y > y2) y2 = y;
     }
     return x2 < 0 ? { x: 0, y: 0, w: 1, h: 1 } : { x: x1, y: y1, w: x2 - x1 + 1, h: y2 - y1 + 1 };
   }
-  // A crop that contains every frame of the given scenes (so the sprite never jumps).
+  // A crop that contains every frame of the given scenes (so the sprite never jumps). Scenes that
+  // burst out of the stage (fx) only count when nothing else is asked for: they overflow the box.
   function sceneBox(names, pad) {
     const grids = [];
+    const calm = names.filter((n) => !(S[n] || S.idle).fx);
+    if (calm.length) names = calm;
     for (const n of names) for (let i = 0; i < (S[n] || S.idle).frames.length; i++) grids.push(frameAt(n, i));
     const b = bbox(grids);
     pad = pad || 0;
@@ -1015,20 +1164,28 @@
   }
 
   // ── salida ──────────────────────────────────────────────────────────────────────────────────
+  // opts.bleed: also draw what falls outside the crop (fx scenes), overflowing the <svg> box.
   function toSVG(g, opts) {
     opts = opts || {};
     const px = opts.px || 4;
-    const gh = g.length, gw = g[0].length;
-    const box = opts.crop || { x: 0, y: 0, w: gw, h: gh };
+    const oy = g.oy || 0;
+    const gw = g[0].length;
+    const box = opts.crop || { x: 0, y: -oy, w: gw, h: g.length };
     const pal = Object.assign({}, PAL, opts.palette || {});
-    let rects = '';
-    for (let y = box.y; y < box.y + box.h; y++) {
-      let x = box.x;
-      while (x < box.x + box.w) {
-        const c = g[y] && g[y][x];
+    const x0 = opts.bleed ? 0 : Math.max(0, box.x), x1 = opts.bleed ? gw : Math.min(gw, box.x + box.w);
+    let rects = '', out = false;
+    for (let gy = 0; gy < g.length; gy++) {
+      const y = gy - oy;
+      const inY = y >= box.y && y < box.y + box.h;
+      if (!inY && !opts.bleed) continue;
+      const row = g[gy];
+      let x = x0;
+      while (x < x1) {
+        const c = row[x];
         if (!c) { x++; continue; }
         let x2 = x;
-        while (x2 + 1 < box.x + box.w && g[y][x2 + 1] === c) x2++;
+        while (x2 + 1 < x1 && row[x2 + 1] === c) x2++;
+        if (!inY || x < box.x || x2 >= box.x + box.w) out = true;
         rects += `<rect x="${x - box.x}" y="${y - box.y}" width="${x2 - x + 1}" height="1" fill="${opts.mono || pal[c] || c}"/>`;
         x = x2 + 1;
       }
@@ -1036,10 +1193,11 @@
     const dims = opts.fluid ? 'width="100%" height="100%"' : `width="${box.w * px}" height="${box.h * px}"`;
     const title = opts.title ? `<title>${opts.title}</title>` : '';
     const role = opts.title ? ' role="img"' : ' aria-hidden="true"';
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.w} ${box.h}" ${dims} shape-rendering="crispEdges"${role}>${title}${rects}</svg>`;
+    const over = out ? ' overflow="visible" style="overflow:visible;pointer-events:none"' : '';
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.w} ${box.h}" ${dims} shape-rendering="crispEdges"${role}${over}>${title}${rects}</svg>`;
   }
 
-  function rgb(h) { const n = parseInt(h.slice(1), 16); return `${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}`; }
+  function rgb(h) { const n = parseInt(h.slice(1, 7), 16); return `${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}`; }
   /** Terminal: one character = 1 column × 2 rows of pixels (▀ ▄ █). */
   function toANSI(g, opts) {
     opts = opts || {};
@@ -1052,8 +1210,8 @@
       let line = opts.indent || '';
       let last = '';
       for (let x = box.x; x < box.x + box.w; x++) {
-        const a = (g[y] && g[y][x]) || null;
-        const b = (g[y + 1] && g[y + 1][x]) || null;
+        const a = at(g, x, y);
+        const b = at(g, x, y + 1);
         let ch, code;
         if (!a && !b) { ch = ' '; code = '\x1b[0m'; }
         else if (a && b && a === b) { ch = '█'; code = `\x1b[0m\x1b[38;2;${rgb(pal[a])}m`; }
@@ -1092,7 +1250,7 @@
     return this;
   };
   Player.prototype._render = function (i) {
-    this.el.innerHTML = toSVG(frameAt(this.scene, i), { px: this.opts.px, crop: this.opts.crop || undefined, fluid: this.opts.fluid });
+    this.el.innerHTML = toSVG(frameAt(this.scene, i), { px: this.opts.px, crop: this.opts.crop || undefined, fluid: this.opts.fluid, bleed: this.opts.bleed !== false && !!S[this.scene].fx });
   };
   Player.prototype._tick = function () {
     clearTimeout(this.timer);
@@ -1228,7 +1386,7 @@
   Director.prototype.stop = function () { clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); clearTimeout(this.holdTimer); this.p.stop(); };
 
   return {
-    PAL, W, H, SCENES: S, P, TOPS, MOD, setMod, base, blank, put, stamp, fill, body, frame, frameAt, frameIndex,
+    PAL, W, H, SCENES: S, P, TOPS, base, blank, at, put, stamp, fill, body, frame, frameAt, frameIndex,
     sceneDuration, bbox, sceneBox, centeredBox, toSVG, toANSI, Player, Director,
   };
 }));

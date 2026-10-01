@@ -462,7 +462,6 @@ async function openSession(id) {
   S.loading = null;
   if (!doc) { toast('No se encontró la sesión'); return; }
   S.cur = { ...doc, running: doc.running };
-  capuSyncMod();
   S.pendingFolder = null;
   S.status = null;
   S.openTools.clear();
@@ -1040,12 +1039,10 @@ function capuReact(scene, after) {
   const d = capuDirector();
   if (d) d.react(scene, after);
 }
-/** Omnisciente (max effort) keeps Capu in Super Saiyan form. */
-function capuSyncMod() { Capu.setMod({ saiyan: (S.cur ? S.cur.effort : S.effort) === 'max' }); }
 const CAPU_EFFORT = { low: 'low', medium: 'mid', high: 'high', ultra: 'ultra' };
 function capuEffort(prev, next) {
-  if (next === 'max' && prev !== 'max') { capuReact('saiyan', () => Capu.setMod({ saiyan: true })); return; }
-  if (prev === 'max' && next !== 'max') { Capu.setMod({ saiyan: false }); capuReact('calm'); return; }
+  // Omnisciente: a Super Saiyan transformation for a few seconds, then back to normal
+  if (next === 'max') { if (prev !== 'max') capuReact('saiyan'); return; }
   if (CAPU_EFFORT[next]) capuReact(CAPU_EFFORT[next]);
 }
 const CAPU_MODEL = { 'deiza-solid-5': 'solid', 'deiza-omniscient': 'liquid', 'deiza-gas-4.5': 'gas' };
@@ -2193,7 +2190,6 @@ async function boot() {
   DeizaI18n.setLanguage(S.language);
   document.documentElement.lang = DeizaI18n.uiLanguage();
   try { const p = await deiza.code.prefs(); S.model = p.model; S.effort = p.effort; } catch { /* defaults */ }
-  capuSyncMod();
   S.platform = info.platform;
   S.home = info.home;
   S.auth = info.auth;

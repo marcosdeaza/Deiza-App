@@ -35,12 +35,12 @@ const POSES = [['idle', 0, 'Reposo'], ['hello', 2, 'Hola'], ['thinking', 3, 'Pen
   ['coffee', 0, 'Café'], ['can', 5, 'Lata'], ['can', 9, 'A tope'], ['duck', 0, 'Pato de goma'], ['reading', 0, 'Leyendo'],
   ['waiting', 9, 'Compilando'], ['npm', 1, 'npm install'], ['git', 2, 'git push'], ['tests', 1, 'Tests'], ['pass', 2, 'Pasan'],
   ['fail', 1, 'Fallan'], ['web', 1, 'Web'], ['focus', 0, 'Concentrado'], ['fine', 0, 'Todo bien'], ['build', 0, 'Build'],
-  ['copilot', 2, 'Copilot'], ['plan', 1, 'Plan'], ['low', 4, 'Esfuerzo bajo'], ['high', 1, 'Esfuerzo alto'], ['saiyan', 6, 'Omnisciente'],
+  ['copilot', 2, 'Copilot'], ['plan', 1, 'Plan'], ['low', 4, 'Esfuerzo bajo'], ['high', 1, 'Esfuerzo alto'], ['saiyan', 12, 'Omnisciente'],
   ['listen', 1, 'Escuchando'], ['solid', 4, 'Solid 5'], ['liquid', 1, 'Liquid'], ['gas', 2, 'Gas'], ['water', 2, 'Riego'],
   ['ask', 0, 'Aprobación'], ['bloom', 5, 'Terminado'], ['wilt', 0, 'Traspaso'], ['sleep', 2, 'Dormido']];
 fs.mkdirSync(path.join(OUT, 'poses'), { recursive: true });
 const all = C.sceneBox(Object.keys(C.SCENES));
-for (const [n, i, label] of POSES) fs.writeFileSync(path.join(OUT, 'poses', `${n}-${i}.svg`), C.toSVG(C.frameAt(n, i), { px: 6, crop: all, title: `Capu: ${label}` }));
+for (const [n, i, label] of POSES) fs.writeFileSync(path.join(OUT, 'poses', `${n}-${i}.svg`), C.toSVG(C.frameAt(n, i), { px: 6, crop: C.SCENES[n].fx ? C.sceneBox([n]) : all, title: `Capu: ${label}` }));
 
 // 4. self-contained animated SVG: frames stacked, shown one at a time with CSS steps
 function animated(scenes, name, px) {
