@@ -22,9 +22,9 @@ const DEIZA_DIR = path.join(os.homedir(), '.deiza');
 const CONFIG_FILE = path.join(DEIZA_DIR, 'config.json');
 const SESSIONS_DIR = path.join(DEIZA_DIR, 'sessions');
 
-const VERSION = '2.3.2';
+const VERSION = '2.4.0';
 const DEFAULT_DEIZA_API = 'https://deiza.org';
-const DEFAULT_MODEL = 'deiza-liquid';
+const DEFAULT_MODEL = 'deiza-solid';   // 1M of context: the default for coding since 2.4.0
 
 const NATIVE_MODELS = ['deiza-liquid', 'deiza-solid', 'deiza-gas'];
 
@@ -73,7 +73,7 @@ const MODEL_INFO = {
     desc: 'Motor principal autónomo. Ventana de 256K tokens, alta velocidad y diffs limpios.',
     tier: 'Equilibrado',
     speed: 'Rápido',
-    default: true,
+    default: false,
   },
   'deiza-solid': {
     id: 'deiza-solid',
@@ -84,7 +84,7 @@ const MODEL_INFO = {
     desc: 'El más capaz y metódico. Planifica antes de tocar el código y verifica cada paso: arquitectura, refactorizaciones grandes, depuración difícil e investigación.',
     tier: 'Razonamiento',
     speed: 'Analítico',
-    default: false,
+    default: true,
   },
   'deiza-gas': {
     id: 'deiza-gas',

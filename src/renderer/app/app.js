@@ -91,7 +91,7 @@ const S = {
   mode: 'chat', theme: 'dark', platform: 'darwin', home: '', auth: { signedIn: false, user: null },
   sessions: [], recents: [], cur: null, loading: null,
   pendingFolder: null, defaultMode: localStorage.getItem('deiza:code:mode') || 'build',
-  model: 'deiza-omniscient', effort: 'medium', language: 'es',
+  model: 'deiza-solid-5', effort: 'medium', language: 'es',
   drafts: new Map(), images: [],
   status: null, statusTimer: null,
   usage: null,
@@ -104,8 +104,8 @@ const itemEls = new Map();
 
 // Code models and effort levels (ids match the engine)
 const MODELS = [
-  { id: 'deiza-omniscient', name: 'Liquid 5.1', tag: 'Equilibrado y agéntico', desc: 'El más equilibrado para programar. Ve imágenes.', badge: 'Recomendado' },
-  { id: 'deiza-solid-5', name: 'Solid 5', tag: 'El más capaz', desc: 'Metódico: planifica, verifica y resuelve lo difícil. Contexto de 1M, ve imágenes.', badge: 'Nuevo' },
+  { id: 'deiza-solid-5', name: 'Solid 5', tag: 'El más capaz · 1M de contexto', desc: 'Metódico: planifica, verifica y resuelve lo difícil. Contexto de 1M, ve imágenes.', badge: 'Recomendado' },
+  { id: 'deiza-omniscient', name: 'Liquid 5.1', tag: 'Equilibrado y agéntico', desc: 'Rápido y equilibrado, contexto de 256K. Ve imágenes.', badge: null },
   { id: 'deiza-gas-4.5', name: 'Gas 4.5', tag: 'Instantáneo', desc: 'El más rápido, para cambios pequeños.', badge: null },
 ];
 const EFFORTS = [
@@ -462,6 +462,7 @@ async function openSession(id) {
   S.loading = null;
   if (!doc) { toast('No se encontró la sesión'); return; }
   S.cur = { ...doc, running: doc.running };
+  capuSyncMod();
   S.pendingFolder = null;
   S.status = null;
   S.openTools.clear();
@@ -562,7 +563,7 @@ function renderHero() {
   const stage = capuEnabled() ? h('div', { class: 'capu capu-hero', title: 'Capu' }) : null;
   if (S.heroDirector) { S.heroDirector.stop(); S.heroDirector = null; }
   if (stage) {
-    const heroPlayer = new Capu.Player(stage, { px: 4, crop: Capu.centeredBox(['idle', 'hello', 'coffee', 'duck', 'sleep', 'thinking'], 1), scene: 'hello' });
+    const heroPlayer = new Capu.Player(stage, { px: 4, crop: Capu.centeredBox(Object.keys(Capu.SCENES), 1), scene: 'hello' });
     S.heroDirector = new Capu.Director(heroPlayer, { sleepAfter: 90000 });
     if (!S.heroHello) S.heroDirector.set('hello');
     S.heroHello = true;
@@ -958,29 +959,115 @@ function stickToBottom() { if (stick) requestAnimationFrame(() => scrollToBottom
 // One stage for the status line, kept alive across redraws so the animation never restarts;
 // the Director turns what the agent is doing into scenes and slips in a gag now and then.
 
-const CAPU_BOX = Capu.sceneBox(Object.keys(Capu.SCENES), 1);
+// Capu stands on the top edge of the input bar: the stage ends at its feet (row 28 of the scene).
+const CAPU_STAND = (() => { const b = Capu.centeredBox(Object.keys(Capu.SCENES), 0); return { x: b.x, y: b.y, w: b.w, h: 28 - b.y }; })();
 const capuEnabled = () => localStorage.getItem('deiza:capu') !== '0';
-const capu = { el: null, player: null, director: null, fails: 0, grace: false };
+const capu = { el: null, player: null, director: null, fails: 0, grace: false, x: null, walking: false, walkTimer: null, cmdKind: '' };
 function capuInit() {
   if (capu.el) return;
-  capu.el = h('div', { class: 'capu', title: 'Capu', role: 'button', 'aria-label': 'Capu' });
-  capu.player = new Capu.Player(capu.el, { px: 2, crop: CAPU_BOX });
+  capu.el = h('div', { class: 'capu capu-stand', title: 'Capu', role: 'button', 'aria-label': 'Capu' });
+  capu.player = new Capu.Player(capu.el, { px: 2, crop: CAPU_STAND });
   capu.director = new Capu.Director(capu.player, { sleepAfter: 120000 });
-  // a click on Capu: an instant gag
-  capu.el.addEventListener('click', () => capu.director.poke());
+  // a click on Capu: an instant trick
+  capu.el.addEventListener('click', () => { capuStopWalk(); capu.director.poke(); });
+  capuWanderLater();
 }
+/** Put Capu on the composer of the open session (the element is kept, so its animation never restarts). */
+function capuMount(box) {
+  if (!capuEnabled() || !S.cur || !box) { if (capu.el) capu.el.remove(); return; }
+  capuInit();
+  box.append(capu.el);
+  requestAnimationFrame(() => capuPlace());
+}
+function capuRange() {
+  const box = capu.el && capu.el.parentElement;
+  const W = box ? box.clientWidth : 700;
+  const stage = CAPU_STAND.w * 2;
+  return [Math.round(W * 0.42), Math.max(Math.round(W * 0.42), W - stage + 10)];
+}
+function capuPlace() {
+  if (!capu.el) return;
+  const [a, b] = capuRange();
+  if (capu.x == null) capu.x = b;
+  capu.x = Math.min(b, Math.max(a, capu.x));
+  capu.el.style.left = `${capu.x}px`;
+}
+function capuWanderLater() { clearTimeout(capu.walkTimer); capu.walkTimer = setTimeout(capuWander, 18000 + Math.random() * 24000); }
+/** Now and then, while resting, Capu walks a little along the input bar. */
+function capuWander() {
+  const d = capu.director;
+  if (!capu.el || !capu.el.isConnected || capu.walking || (S.cur && S.cur.running) || !d || d.state !== 'idle' || d.reacting || document.hidden || reduceMotion()) return capuWanderLater();
+  const [a, b] = capuRange();
+  const target = Math.round(a + Math.random() * (b - a));
+  const dist = Math.abs(target - capu.x);
+  if (dist < 30) return capuWanderLater();
+  const secs = dist / 20;
+  capu.walking = true;
+  d.pause();
+  capu.el.classList.toggle('flip', target < capu.x);
+  capu.player.play('walk');
+  capu.el.style.transition = `left ${secs.toFixed(2)}s linear`;
+  capu.el.style.left = `${target}px`;
+  capu.x = target;
+  capu.walkEnd = setTimeout(() => capuStopWalk(true), secs * 1000 + 60);
+}
+function capuStopWalk(arrived) {
+  if (!capu.walking) return;
+  clearTimeout(capu.walkEnd);
+  capu.walking = false;
+  if (!arrived && capu.el) {
+    const left = capu.el.offsetLeft;
+    capu.el.style.transition = '';
+    capu.el.style.left = `${left}px`;
+    capu.x = left;
+  } else if (capu.el) capu.el.style.transition = '';
+  if (capu.el) capu.el.classList.remove('flip');
+  capu.director.resume();
+  capuWanderLater();
+}
+/** Whichever Capu is on screen: the one on the input bar, or the big one on the start page. */
+function capuDirector() { return S.cur ? (capu.director || null) : (S.heroDirector || null); }
 function capuSet(state) {
+  if (!capuEnabled()) return;
   capuInit();
   if (capu.grace && state !== 'done' && state !== 'idle') state = 'grace';
+  if (state !== 'idle' && state !== 'watch') capuStopWalk();
   capu.director.set(state);
+}
+function capuReact(scene, after) {
+  if (!capuEnabled()) return;
+  if (S.cur) { capuInit(); capuStopWalk(); }
+  const d = capuDirector();
+  if (d) d.react(scene, after);
+}
+/** Omnisciente (max effort) keeps Capu in Super Saiyan form. */
+function capuSyncMod() { Capu.setMod({ saiyan: (S.cur ? S.cur.effort : S.effort) === 'max' }); }
+const CAPU_EFFORT = { low: 'low', medium: 'mid', high: 'high', ultra: 'ultra' };
+function capuEffort(prev, next) {
+  if (next === 'max' && prev !== 'max') { capuReact('saiyan', () => Capu.setMod({ saiyan: true })); return; }
+  if (prev === 'max' && next !== 'max') { Capu.setMod({ saiyan: false }); capuReact('calm'); return; }
+  if (CAPU_EFFORT[next]) capuReact(CAPU_EFFORT[next]);
+}
+const CAPU_MODEL = { 'deiza-solid-5': 'solid', 'deiza-omniscient': 'liquid', 'deiza-gas-4.5': 'gas' };
+function capuCommandKind(cmd) {
+  const c = String(cmd || '');
+  if (/\b(npm|pnpm|yarn|bun)\s+(i|install|add|ci)\b|\bpip3?\s+install\b|\bcargo\s+add\b/.test(c)) return 'npm';
+  if (/\b(npm|pnpm|yarn|bun)\s+(run\s+)?test\b|\b(jest|vitest|pytest|mocha)\b|\bgo\s+test\b|\bcargo\s+test\b|node\s+--test|\.test\.[jt]s\b/.test(c)) return 'tests';
+  if (/\bgit\s+(commit|push|merge|pull|rebase|tag)\b/.test(c)) return 'git';
+  return '';
 }
 function capuFromStatus(st) {
   if (!st || st.kind === 'thinking') return 'thinking';
-  if (st.kind === 'approval') return 'idle';
+  if (st.kind === 'approval') return 'approval';
   const n = String(st.name || '');
-  if (n === 'run_command') return 'running';
+  if (n === 'run_command') {
+    const kind = capuCommandKind(st.text);
+    if (st.kind === 'running') capu.cmdKind = kind;
+    return kind || 'running';
+  }
+  if (n === 'fetch_url') return 'web';
   if (/write|append|edit|move|delete/.test(n)) return 'writing';
-  if (/read|list|search|fetch|view|image/.test(n)) return 'reading';
+  if (/read|list|search|view|image/.test(n)) return 'reading';
   return 'thinking';
 }
 
@@ -992,23 +1079,19 @@ function renderStatus() {
   clearInterval(S.statusTimer);
   const glow = !(S.cur && S.cur.running) && S.afterglow > Date.now();
   const withCapu = capuEnabled();
-  // Capu stays by the composer for the whole session, not only while the agent works
+  // Capu stands on the input bar for the whole session: leave room above it
   $('#thread').classList.toggle('has-status', Boolean(S.cur && (S.cur.running || glow || withCapu)));
-  if (!S.cur || (!S.cur.running && !glow && !withCapu)) return;
-  if (withCapu) capuInit();
-  if (glow) {
-    if (withCapu) line.append(h('div', { class: 'inner done' }, capu.el, h('span', { text: S.afterglowText || T('Hecho') })));
+  if (!S.cur || (!S.cur.running && !glow)) {
+    if (S.cur && withCapu && capu.director && !capu.grace && ['thinking', 'writing', 'reading', 'running', 'debugging', 'error', 'web', 'npm', 'git', 'tests', 'approval'].includes(capu.director.state)) capuSet('idle');
     return;
   }
-  if (!S.cur.running) {
-    // resting: no label, just Capu (it blinks, looks around, has a coffee now and then, naps)
-    if (!capu.grace && ['thinking', 'writing', 'reading', 'running', 'debugging', 'error'].includes(capu.director.state)) capuSet('idle');
-    line.append(h('div', { class: 'inner rest' }, capu.el));
+  if (glow) {
+    line.append(h('div', { class: 'inner done' }, h('span', { text: S.afterglowText || T('Hecho') })));
     return;
   }
   const st = S.status || { kind: 'thinking', text: 'Pensando', since: Date.now() };
   if (withCapu && !capu.grace) capuSet(capuFromStatus(st));
-  const inner = h('div', { class: `inner${withCapu ? '' : ' plain'}` }, withCapu ? capu.el : DeizaRose(16, { loop: true }));
+  const inner = h('div', { class: `inner${withCapu ? '' : ' plain'}` }, withCapu ? null : DeizaRose(16, { loop: true }));
   const label = h('span');
   const tick = () => {
     label.innerHTML = '';
@@ -1076,6 +1159,7 @@ function renderComposer(hero) {
       S.images.push(await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); }));
     }
     renderAtts();
+    if (files.length) capuReact('photo');
     sendBtn.disabled = !canSend();
   };
   ta.addEventListener('paste', (e) => {
@@ -1110,6 +1194,7 @@ function renderComposer(hero) {
         localStorage.setItem('deiza:code:mode', m);
         if (S.cur) { S.cur.mode = m; await deiza.code.setMode({ id: S.cur.id, mode: m }); }
         for (const b of modes.children) b.setAttribute('aria-pressed', String(b.dataset.mode === m));
+        capuReact(m);
       },
     }, m === 'build' ? 'Build' : m === 'copilot' ? 'Copilot' : 'Plan'));
   }
@@ -1198,7 +1283,7 @@ function renderComposer(hero) {
   };
 
   ta.addEventListener('input', () => {
-    if (hero || !capuEnabled() || !capu.director || (S.cur && S.cur.running) || capu.grace) return;
+    if (hero || !capuEnabled() || !capu.director || (S.cur && S.cur.running) || capu.grace || capu.walking || dict) return;
     if (capu.director.state !== 'watch') capu.director.set('watch');
     clearTimeout(capu.watchTimer);
     capu.watchTimer = setTimeout(() => { if (capu.director.state === 'watch') capu.director.set('idle'); }, 4000);
@@ -1227,6 +1312,7 @@ function renderComposer(hero) {
   };
   box._changed = () => { fit(); sendBtn.disabled = !(S.cur && S.cur.running) && !canSend(); };
   if (dict) dict.attach(box);
+  if (!hero) capuMount(box);
   return frag;
 }
 
@@ -1353,7 +1439,10 @@ function repaintModelPills() {
 }
 
 async function chooseModel(patch) {
-  const c = { ...currentChoice(), ...patch };
+  const before = currentChoice();
+  const c = { ...before, ...patch };
+  if (patch.model && modelInfo(patch.model).id !== modelInfo(before.model).id) capuReact(CAPU_MODEL[modelInfo(patch.model).id] || 'mid');
+  else if (patch.effort && patch.effort !== before.effort) capuEffort(before.effort, patch.effort);
   S.model = c.model;
   S.effort = c.effort;
   if (S.cur) { S.cur.model = c.model; S.cur.effort = c.effort; }
@@ -1740,6 +1829,9 @@ async function startDictation() {
     const cleanup = () => {
       strip.remove();
       if (box) box.classList.remove('dictating');
+      const d = capuDirector();
+      if (d && d.state === 'listening') d.set(dict && dict.capuWas && dict.capuWas !== 'listening' ? dict.capuWas : 'idle');
+      if (d && keep) d.react('notes');
       dict = null;
     };
     if (!keep || durationMs < 600) { cleanup(); return; }
@@ -1773,6 +1865,9 @@ async function startDictation() {
   doneBtn.onclick = () => finish(true);
   rec.start(1000);
   dict = { finish, attach };
+  const capuWas = capuDirector() ? capuDirector().state : 'idle';
+  if (capuDirector()) { capuStopWalk(); capuDirector().set('listening'); }
+  dict.capuWas = capuWas;
   attach(composerBox());
 }
 
@@ -1784,6 +1879,7 @@ function refreshComposerState() {
 function stopRun() {
   if (!S.cur || !S.cur.running) return;
   deiza.code.abort(S.cur.id);
+  capuReact('halt');
   S.status = { kind: 'thinking', text: 'Deteniendo', since: Date.now() };
   renderStatus();
 }
@@ -2078,6 +2174,12 @@ function onCodeEvent({ id, seq, ev }) {
     if (S.panel.tab === 'changes') renderPanel();
   }
   if (ev.t === 'approval') { S.status = { kind: 'approval', text: 'Esperando tu aprobación' }; renderStatus(); }
+  if (ev.t === 'approval_resolved' && capuEnabled()) capuSet('thinking');
+  if (ev.t === 'tool_start' && ev.name === 'delete_path' && capuEnabled()) capuReact('trash');
+  if (ev.t === 'tool_end' && changed && changed.name === 'run_command' && capu.cmdKind === 'tests' && capuEnabled()) {
+    capuReact(changed.status === 'ok' ? 'pass' : 'fail');
+    capu.cmdKind = '';
+  }
   stickToBottom();
 }
 
@@ -2091,6 +2193,7 @@ async function boot() {
   DeizaI18n.setLanguage(S.language);
   document.documentElement.lang = DeizaI18n.uiLanguage();
   try { const p = await deiza.code.prefs(); S.model = p.model; S.effort = p.effort; } catch { /* defaults */ }
+  capuSyncMod();
   S.platform = info.platform;
   S.home = info.home;
   S.auth = info.auth;

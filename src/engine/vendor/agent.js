@@ -349,7 +349,11 @@ async function streamCompletionWithRetry(params, maxRetries = 10) {
  * system prompt, and never leave an orphan tool result at the top.
  */
 function trimContext(messages, maxChars = MAX_CONTEXT_CHARS) {
-  const size = () => messages.reduce((n, m) => n + JSON.stringify(m).length, 0);
+  // images count as what they cost the model (~1.5k tokens), not as their base64 length
+  const msgSize = (m) => (Array.isArray(m.content)
+    ? m.content.reduce((n, p) => n + (p && p.type === 'image_url' ? 6000 : JSON.stringify(p).length), 0) + JSON.stringify(m.tool_calls || '').length
+    : JSON.stringify(m).length);
+  const size = () => messages.reduce((n, m) => n + msgSize(m), 0);
   while (messages.length > 6 && size() > maxChars) {
     messages.splice(1, 1);
     while (messages.length > 2 && messages[1].role === 'tool') messages.splice(1, 1);
@@ -870,9 +874,17 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
       messages.push({ role: 'assistant', content: assistantText });
     }
     const truncated = result.finishReason === 'length' || toolCalls.some(c => c.cut);
+    // Images asked for with view_image travel as real image parts in a user message after the tool
+    // results (never as base64 text in the tool result: that was ~40k tokens of noise per picture).
+    const pendingImages = [];
     const pushResult = (call, payload) => {
-      let serialized = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
-      if (serialized.length > MAX_TOOL_OUTPUT) serialized = serialized.slice(0, MAX_TOOL_OUTPUT) + '\n... (salida truncada)';
+      if (call.name === 'view_image' && payload && typeof payload === 'object' && payload.data_url) {
+        pendingImages.push({ path: payload.path, url: payload.data_url });
+        const { data_url, ...meta } = payload;
+        payload = { ...meta, note: 'La imagen va adjunta justo después de los resultados de las herramientas.' };
+      }
+      let serialized = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      if (serialized.length > MAX_TOOL_OUTPUT) serialized = serialized.slice(0, MAX_TOOL_OUTPUT) + '\n... (salida truncada: usa start_line/end_line o un comando más concreto)';
       if (toolMode === 'native') messages.push({ role: 'tool', tool_call_id: call.id, content: serialized });
       else messages.push({ role: 'user', content: `<tool_response name="${call.name}">\n${serialized}\n</tool_response>` });
     };
@@ -977,6 +989,13 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
       }
       pushResult(call, toolResult);
       if (!(toolResult && toolResult.error)) roundOk++;
+    }
+    if (pendingImages.length) {
+      messages.push({ role: 'user', content: [
+        { type: 'text', text: `Imagen${pendingImages.length > 1 ? 'es' : ''} pedida${pendingImages.length > 1 ? 's' : ''} con view_image: ${pendingImages.map(i => i.path).join(', ')}` },
+        ...pendingImages.map(i => ({ type: 'image_url', image_url: { url: i.url } })),
+      ] });
+      pendingImages.length = 0;
     }
     if (stopReason === 'aborted') break;
 

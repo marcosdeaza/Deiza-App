@@ -243,6 +243,7 @@ function getActiveContextTokens(messages = []) {
     } else if (Array.isArray(m.content)) {
       for (const part of m.content) {
         if (typeof part?.text === 'string') totalChars += part.text.length;
+        else if (part?.type === 'image_url') totalChars += 5700;   // ~1.5k tokens per image
       }
     }
     if (Array.isArray(m.tool_calls)) {

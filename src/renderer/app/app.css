@@ -768,3 +768,9 @@ button.ctx:hover { color: hsl(var(--fg)); background: hsl(var(--muted) / .6); }
 .ctx-pop .row { display: flex; gap: 8px; margin-top: 2px; }
 #statusline .capu { cursor: pointer; }
 #statusline .inner .capu { pointer-events: auto; }
+
+/* Capu standing on the input bar */
+.capu-stand { position: absolute; bottom: calc(100% - 3px); left: 70%; z-index: 6; cursor: pointer; line-height: 0; }
+.capu-stand.flip svg { transform: scaleX(-1); }
+#composer-wrap { position: relative; }
+#thread.has-status #transcript { padding-bottom: 72px; }

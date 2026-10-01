@@ -47,7 +47,7 @@ const MODELS = {
   'deiza-solid-5': { effort: true, vision: true },
   'deiza-gas-4.5': { effort: false, vision: false },
 };
-const DEFAULT_MODEL = 'deiza-omniscient';
+const DEFAULT_MODEL = 'deiza-solid-5';
 // Sessions saved by earlier versions keep working under the new names.
 const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid-5.1': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
 const normModel = (m) => (MODELS[m] ? m : MODEL_ALIASES[m] || DEFAULT_MODEL);
@@ -509,10 +509,26 @@ async function run(msg) {
     snapshots.set(key, { path: key, existed: cur.exists, content: cur.exists ? cur.text : null, revertible: !cur.exists || cur.text !== null });
   };
 
+  // view_image: the picture travels as a real image part in a user message after the tool results,
+  // never as base64 text inside the tool result (that was ~40k tokens of noise per image).
+  const pendingImages = [];
   const pushResult = (call, payload) => {
-    let s = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
-    if (s.length > MAX_TOOL_OUTPUT) s = s.slice(0, MAX_TOOL_OUTPUT) + '\n... (salida truncada)';
+    if (call.name === 'view_image' && payload && typeof payload === 'object' && payload.data_url) {
+      pendingImages.push({ path: payload.path, url: payload.data_url });
+      const { data_url, ...meta } = payload;
+      payload = { ...meta, note: 'La imagen va adjunta justo después de los resultados de las herramientas.' };
+    }
+    let s = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    if (s.length > MAX_TOOL_OUTPUT) s = s.slice(0, MAX_TOOL_OUTPUT) + '\n... (salida truncada: usa start_line/end_line o un comando más concreto)';
     messages.push({ role: 'tool', tool_call_id: call.id, content: s });
+  };
+  const flushImages = () => {
+    if (!pendingImages.length) return;
+    messages.push({ role: 'user', content: [
+      { type: 'text', text: `Imagen${pendingImages.length > 1 ? 'es' : ''} pedida${pendingImages.length > 1 ? 's' : ''} con view_image: ${pendingImages.map(i => i.path).join(', ')}` },
+      ...pendingImages.map(i => ({ type: 'image_url', image_url: { url: i.url } })),
+    ] });
+    pendingImages.length = 0;
   };
 
   let continuations = 0;
@@ -578,7 +594,9 @@ async function run(msg) {
 
       const assistantText = result.text || '';
       {
-        const used = Number(result.usage?.prompt_tokens || 0) + Number(result.usage?.completion_tokens || 0);
+        // what the model will re-read next round: this prompt plus the visible answer (reasoning is not re-sent)
+        const visible = Math.ceil(((result.text || '').length + result.toolCalls.reduce((n, c) => n + c.arguments.length, 0)) / 3.8);
+        const used = Number(result.usage?.prompt_tokens || 0) ? Number(result.usage.prompt_tokens) + visible : 0;
         post({ t: 'context', used: used || getActiveContextTokens(messages), limit: contextLimit(model), model, estimated: !used });
       }
       stats.prompt += Number(result.usage?.prompt_tokens || Math.ceil(JSON.stringify(messages).length / 3.8));
@@ -707,6 +725,7 @@ async function run(msg) {
         pushResult(call, res);
         if (!(res && res.error)) roundOk++;
       }
+      flushImages();
       post({ t: 'history', messages });
       if (stopReason === 'aborted') break;
 

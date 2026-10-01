@@ -49,6 +49,10 @@
     c: '#8E5B40', // café claro
     G: '#A7C98A', // verde terminal
     Z: '#A79D92', // vapor
+    k: '#C99A66', // cartón
+    j: '#9C7046', // cartón en sombra
+    g: '#F7D46A', // oro claro (aura)
+    B: '#7FB3C9', // agua (solo en el agua de Liquid)
   };
 
   // ── silueta base 8×10 (1 píxel = 1 píxel gordo) ─────────────────────────────────────────────
@@ -68,6 +72,9 @@
     for (const [x, y] of eyes) rows[y][x] = '.';
     return rows.map((r) => r.map((c) => (c === '.' ? null : c)));
   }
+
+  // Global look modifiers set by the host app (MOD.saiyan: golden hair + aura on every scene).
+  const MOD = { saiyan: false };
 
   // ── escena a resolución fina ────────────────────────────────────────────────────────────────
   const W = 54;
@@ -96,6 +103,10 @@
     }
   }
   function fill(g, x, y, w, h, c) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(g, x + i, y + j, c); }
+  // recolour only the pixels that already have colour `from`
+  function tint(g, x, y, w, h, from, to) {
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { if (g[y + j] && g[y + j][x + i] === from) g[y + j][x + i] = to; }
+  }
 
   // Tops at fine resolution (16 wide, 4 tall), drawn above the body block.
   const TOPS = {
@@ -135,7 +146,17 @@
       'XX..XXXXXXXXXXXXXXXX',
     ],
   };
-  const TOP_OFF = { bloom: [-2, -2], wilt: [-4, 0] };
+  // Super Saiyan: hair of golden petal spikes
+  TOPS.saiyan = [
+    '.....g........g.....',
+    '..Y..gY......Yg...Y.',
+    '.YY..YYY....YYY..YY.',
+    '.YYY.YYYY..YYYY.YYY.',
+    '..YYYYYYYYYYYYYYYY..',
+    '..YYYYYYYYYYYYYYYY..',
+    '..yYYYYYYYYYYYYYYy..',
+  ];
+  const TOP_OFF = { bloom: [-2, -2], wilt: [-4, 0], saiyan: [-2, -3] };
 
   // Eye holes (fine coords relative to the body's top-left corner, below the top rows).
   const EY = 8;   // top row of the eyes (relative to BY)
@@ -187,7 +208,7 @@
     const x0 = BX + (o.dx || 0);
     const sq = o.squash || 0;
     const y0 = BY + (o.dy || 0) + sq;
-    const tk = o.top || 'bud';
+    const tk = (MOD.saiyan && (!o.top || o.top === 'bud' || o.top === 'twitch')) ? 'saiyan' : (o.top || 'bud');
     const off = TOP_OFF[tk] || [0, 0];
     stamp(g, x0 + off[0], y0 + off[1], TOPS[tk]);
     fill(g, x0, y0 + 4, 16, 14 - sq, 'X');
@@ -255,15 +276,11 @@
     ],
     laptop: [
       'tSSSSSSSSSSSSSSSSt',
-      'tddddddddddddddddt',
-      'tdrRrddddddddddddt',
-      'tdRqRdddddKKKKKddt',
-      'tdrRrdddddKGKKKddt',
-      'tdddddddddKKGGKddt',
-      'tddddddddddddddddt',
+      'tdrRrdddddKKKKKddt',
+      'tdRqRdddddKGKKKddt',
+      'tdrRrdddddKKGGKddt',
       'tddYddddwwwwdddddt',
       'tdYYYdddwvvwdddddt',
-      'tddYddddddddddddDt',
       'tttttttttttttttttt',
     ],
     laptopBase: ['DDDDDDDDDDDDDDDDDDDDDD'],
@@ -390,18 +407,18 @@
   // tecleando en un portátil lleno de pegatinas; la pantalla le ilumina la cara
   function typing(k, eyes) {
     return (g) => {
-      const b = body(g, { eyes: eyes || 'down', dy: k % 4 === 1 ? 1 : 0 });
-      const ly = BY + 13;
-      // screen light on the face, just above the lid
-      if (k % 3 !== 2) fill(g, b.x0 + 1, ly - 1, 14, 1, 'r');
-      if (k % 3 === 0) fill(g, b.x0 + 3, ly - 2, 10, 1, 'r');
+      const b = body(g, { eyes: eyes || 'open', dy: k % 4 === 1 ? 1 : 0 });
+      const ly = BY + 12;
+      // screen light on the face, just above the lid (only on the body, never over the eyes)
+      if (k % 3 !== 2) tint(g, b.x0 + 1, ly - 1, 14, 1, 'X', 'r');
+      if (k % 3 === 0) tint(g, b.x0 + 3, ly - 2, 10, 1, 'X', 'r');
       stamp(g, b.x0 - 1, ly, P.laptop);
-      stamp(g, b.x0 - 3, ly + 11, P.laptopBase);
+      stamp(g, b.x0 - 3, ly + 7, P.laptopBase);
       // the terminal sticker's cursor blinks
-      if (k % 2) put(g, b.x0 + 12, ly + 5, 'K');
+      if (k % 2) put(g, b.x0 + 12, ly + 3, 'K');
       // leaf hands reaching the keys, alternating
-      stamp(g, b.x0 - 3, ly + 7 + (k % 2), ['LL', '.l']);
-      stamp(g, b.x0 + 17, ly + 7 + ((k + 1) % 2), ['LL', 'l.']);
+      stamp(g, b.x0 - 3, ly + 4 + (k % 2), ['LL', '.l']);
+      stamp(g, b.x0 + 17, ly + 4 + ((k + 1) % 2), ['LL', 'l.']);
     };
   }
   S.typing = { loop: true, frames: [
@@ -413,13 +430,13 @@
   // café con vapor; sorbo por el hueco de los pétalos
   function coffee(k, eyes, sip) {
     return (g) => {
-      const b = body(g, { eyes: eyes || 'open', armR: sip ? 'high' : 'hold' });
+      const b = body(g, { eyes: eyes || 'open', armR: sip ? 'high' : 'out' });
       if (sip) {
         stamp(g, b.x0 + 18, BY - 2, P.mug);
       } else {
-        stamp(g, b.x0 + 19, BY + 14, P.mug);
-        stamp(g, b.x0 + 20, BY + 7 - (k % 2), k % 2 ? P.steam1 : P.steam2);
-        stamp(g, b.x0 + 24, BY + 8 - (k % 2), k % 2 ? P.steam2 : P.steam1);
+        stamp(g, b.x0 + 19, BY + 10, P.mug);
+        stamp(g, b.x0 + 20, BY + 3 - (k % 2), k % 2 ? P.steam1 : P.steam2);
+        stamp(g, b.x0 + 24, BY + 4 - (k % 2), k % 2 ? P.steam2 : P.steam1);
       }
     };
   }
@@ -525,13 +542,13 @@
   // algo se ha roto: todo bien, todo en llamas
   function fine(k) {
     return (g) => {
-      const b = body(g, { eyes: k === 7 ? 'closed' : 'squint', armR: 'hold' });
-      stamp(g, b.x0 + 19, BY + 14, P.mug);
+      const b = body(g, { eyes: k === 7 ? 'closed' : 'squint', armR: 'out' });
+      stamp(g, b.x0 + 19, BY + 10, P.mug);
       const fl = [P.flame1, P.flame2, P.flame3];
       stamp(g, b.x0 - 9, BY + 14, fl[k % 3]);
-      stamp(g, b.x0 - 4, BY + 16, fl[(k + 1) % 3]);
+      stamp(g, b.x0 - 4, BY + 14, fl[(k + 1) % 3]);
       stamp(g, b.x0 + 29, BY + 14, fl[(k + 2) % 3]);
-      if (k % 4 === 0) stamp(g, b.x0 + 20, BY + 7, P.steam1);
+      if (k % 4 === 0) stamp(g, b.x0 + 20, BY + 3, P.steam1);
     };
   }
   S.fine = { loop: true, frames: [] };
@@ -563,7 +580,7 @@
       const b = body(g, { top: 'wilt', eyes: k === 3 ? 'closed' : 'half', squash: 2, armR: 'hold' });
       stamp(g, b.x0 + 19, BY + 12, P.paper);
       stamp(g, b.x0 + 23 + (k % 2), BY + 9 + (k % 2), P.pencil);
-      stamp(g, BX - 7, BY + 17, P.canCrushed);
+      stamp(g, BX - 7, BY + 16, P.canCrushed);
     };
   }
   S.wilt = { loop: true, frames: [[380, wilt(0)], [380, wilt(1)], [380, wilt(0)], [140, wilt(3)], [380, wilt(1)]] };
@@ -577,6 +594,376 @@
     };
   }
   S.sleep = { loop: true, frames: [[750, sleep(0)], [750, sleep(1)], [750, sleep(2)], [750, sleep(3)], [750, sleep(4)], [750, sleep(5)]] };
+
+  // ── escenas nuevas: reacciones a la interfaz y estereotipos de programador ──────────────────
+  Object.assign(P, {
+    hardhat: [
+      '....YYYYYYYY....',
+      '..YYYYYYYYYYYY..',
+      '.YYYYYyYYYYYYYY.',
+      '.YYYYYyYYYYYYYY.',
+      'yyyyyyyyyyyyyyyy',
+      '.yyyyyyyyyyyyyy.',
+    ],
+    hammerUp: ['ddd.', 'ddd.', '.c..', '..c.', '...c'],
+    hammerDown: ['....', 'c...', '.c..', '..cdd', '...dd'],
+    pilotcap: [
+      '....CCCCCCCC....',
+      '..CCCCCCCCCCCC..',
+      '.CCCcCCCCCCcCCC.',
+      'CCCCCCCCCCCCCCCC',
+    ],
+    goggles: [
+      'DDDDDDDDDDDDDDDD',
+      '.tWWt....tWWt...',
+      '.tWwt....tWwt...',
+      '..tt......tt....',
+    ],
+    blueprint: [
+      'wWWWWWWWWWWWw',
+      'WvWWvWWvWWvWW',
+      'WWWYYYWWWWWWW',
+      'WvWWvYYvWWvWW',
+      'WWWWWWYYYWWWW',
+      'WvWWvWWvYvvWW',
+      'wWWWWWWWWWWWw',
+    ],
+    shades: [
+      'KKKKKKKKKKKKKKKK',
+      '.KWKKKK..KWKKKK.',
+      '..KKKK....KKKK..',
+    ],
+    headband: ['rrrrrrrrrrrrrrrr', 'qqqqqqqqqqqqqqqq'],
+    tailA: ['rrr', '.rr', '..r'],
+    tailB: ['r..', 'rrr', '.r.'],
+    ear: ['.LL.', 'LLLl', 'LL.l', 'LLLl', '.LL.'],
+    arc1: ['w.', '.w', '.w', 'w.'],
+    arc2: ['w..', '.w.', '..w', '..w', '.w.', 'w..'],
+    polaroid: [
+      'WWWWWWWW',
+      'WDDDDDDW',
+      'WDDYDDDW',
+      'WDdDDdDW',
+      'WdLddLdW',
+      'WLLLLLLW',
+      'WWWWWWWW',
+      'WWWWWWWW',
+    ],
+    sign: [
+      'WWWWWWW',
+      'WWYYYWW',
+      'WWWWYWW',
+      'WWWYYWW',
+      'WWWWWWW',
+      'WWWYWWW',
+      'WWWWWWW',
+      '...c...',
+      '...c...',
+    ],
+    box: [
+      'jjjjjjjjjjjjjjjjjj',
+      'jkkkkkkkyykkkkkkkj',
+      'jkkkkkkkyykkkkkkkj',
+      'jkWWWWWWWWWWWkkkkj',
+      'jkWvvvvvvvvvWkkkkj',
+      'jkWWWWWWWWWWWkkkkj',
+      'jkkkkkkkyykkkkkkkj',
+      'jjjjjjjjjjjjjjjjjj',
+    ],
+    cube: ['.OOOO.', 'OOOOOo', 'OOWOOo', 'OOOOOo', 'OOOOOo', '.oooo.'],
+    clipboard: ['..dd...', 'tWWWWWt', 'tWGWvvt', 'tWWWWWt', 'tWGWvvt', 'tWWWWWt', 'tWGWvvt', 'ttttttt'],
+    bigcheck: ['.......GG', '......GG.', '.....GG..', 'GG..GG...', '.GGGG....', '..GG.....'],
+    cross: ['rr...rr', '.rr.rr.', '..rrr..', '.rr.rr.', 'rr...rr'],
+    binoculars: ['.dd..dd.', 'dDDddDDd', 'dWDddDWd', '.dd..dd.'],
+    bin: ['ssssssss', '.tdddddt.', '.tdtdtdt', '.tdtdtdt', '.tdtdtdt', '..tttttt'],
+    ball: ['.W.', 'WWW', '.W.'],
+    wcan: ['..s.....', '.sSSs..s', 'sSSSSss.', 'sSSSSs..', '.ssss...'],
+    phone: ['DDDD', 'DwwD', 'DWwD', 'DwWD', 'DwwD', 'DDDD'],
+    one: ['.Y.', 'YY.', '.Y.', '.Y.', 'YYY'],
+    em: ['Y...Y', 'YY.YY', 'Y.Y.Y', 'Y...Y', 'Y...Y'],
+    bolt: ['..Y', '.Y.', 'YYY', '.Y.', 'Y..'],
+    confetti: ['R...Y..G', '..G...W.', '.Y..R...', 'W....G.R'],
+  });
+
+  // the golden aura of Super Saiyan: a flickering outline around Capu (n = thickness)
+  function aura(g, k, n) {
+    const H2 = g.length, W2 = g[0].length;
+    const isBody = (c) => c === 'X' || c === 'x' || c === 'Y' || c === 'y' || c === 'g';
+    for (let pass = 0; pass < (n || 1); pass++) {
+      const marks = [];
+      // holes inside the silhouette (the eyes) are not outside: body on both sides of the row and column
+      const enclosed = (x, y) => {
+        let l = false, r = false, u = false, d = false;
+        for (let i = 1; i <= 6; i++) {
+          if (g[y][x - i]) l = true;
+          if (g[y][x + i]) r = true;
+          if (g[y - i] && g[y - i][x]) u = true;
+          if (g[y + i] && g[y + i][x]) d = true;
+        }
+        return l && r && u && d;
+      };
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+        if (g[y][x] || enclosed(x, y)) continue;
+        const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+          const c = g[y + dy] && g[y + dy][x + dx];
+          return pass === 0 ? isBody(c) : (c === 'g' || c === 'O');
+        });
+        if (nb && ((x * 3 + y * 5 + k) % (pass === 0 ? 3 : 2)) !== 0) marks.push([x, y]);
+      }
+      for (const [x, y] of marks) g[y][x] = pass === 0 ? 'g' : 'O';
+    }
+  }
+
+  // walking along the input bar (the host app moves the sprite and mirrors it to walk left)
+  S.walk = { loop: true, frames: [
+    [150, pose({ eyes: 'right', legs: 'stepL' })],
+    [150, pose({ eyes: 'right', dy: -1 })],
+    [150, pose({ eyes: 'right', legs: 'stepR' })],
+    [150, pose({ eyes: 'right', dy: -1 })],
+  ] };
+
+  // Build: casco de obra y martillo
+  function build(k) {
+    return (g) => {
+      const b = body(g, { eyes: k % 2 ? 'squint' : 'open', armR: k % 2 ? 'out' : 'high', dy: k % 2 ? 1 : 0 });
+      stamp(g, b.x0, b.y0 - 2, P.hardhat);
+      stamp(g, b.x0 + 17, b.y0 + (k % 2 ? 9 : 1), k % 2 ? P.hammerDown : P.hammerUp);
+      if (k % 2) { put(g, b.x0 + 22, b.y0 + 14, 'Y'); put(g, b.x0 + 24, b.y0 + 12, 'Y'); }
+    };
+  }
+  S.build = { loop: false, frames: [[260, build(0)], [160, build(1)], [260, build(2)], [160, build(3)], [260, build(4)], [160, build(5)], [500, build(0)]] };
+
+  // Copilot: gorra de piloto, gafas y pulgar arriba
+  function copilot(k) {
+    return (g) => {
+      const b = body(g, { eyes: k === 2 ? 'happy' : 'open', armR: k >= 2 ? 'up' : 'out' });
+      for (let y = 0; y < 4; y++) for (let x = -2; x < 20; x++) put(g, b.x0 + x, b.y0 + y, '_');
+      stamp(g, b.x0, b.y0, P.pilotcap);
+      stamp(g, b.x0, b.y0 + 4, P.goggles);
+      if (k >= 2) stamp(g, b.x0 + 18, b.y0 + 5, ['LL', 'LL', 'l.']);
+    };
+  }
+  S.copilot = { loop: false, frames: [[300, copilot(0)], [300, copilot(1)], [700, copilot(2)], [500, copilot(3)]] };
+
+  // Plan: despliega el plano y lo estudia
+  function plan(k) {
+    return (g) => {
+      const eyes = ['downright', 'down', 'downright', 'down'][k % 4];
+      const b = body(g, { eyes, armL: 'out', armR: 'out' });
+      stamp(g, b.x0 + 1, b.y0 + 11, P.blueprint);
+      if (k % 2) put(g, b.x0 + 6 + k, b.y0 + 13 + (k % 3), 'r');
+    };
+  }
+  S.plan = { loop: false, frames: [[420, plan(0)], [420, plan(1)], [420, plan(2)], [420, plan(3)], [300, plan(4)]] };
+
+  // Esfuerzo bajo: las gafas de sol bajan solas ("deal with it")
+  function low(k) {
+    return (g) => {
+      const b = body(g, { eyes: 'half' });
+      const yy = [b.y0 - 8, b.y0 - 4, b.y0, b.y0 + 4, b.y0 + 8, b.y0 + 8][Math.min(k, 5)];
+      stamp(g, b.x0, yy, P.shades);
+    };
+  }
+  S.low = { loop: false, frames: [[140, low(0)], [140, low(1)], [140, low(2)], [140, low(3)], [900, low(4)], [300, low(5)]] };
+
+  // Esfuerzo medio: asiente
+  S.mid = { loop: false, frames: [[180, pose({ eyes: 'happy', dy: 1 })], [180, pose({ eyes: 'happy' })], [180, pose({ eyes: 'happy', dy: 1 })], [400, pose({})]] };
+
+  // Esfuerzo alto: cinta en la frente al viento
+  function high(k, ultra) {
+    return (g) => {
+      const b = body(g, { eyes: ultra ? 'wide' : 'squint', armL: k % 2 ? 'up' : 'down', armR: k % 2 ? 'up' : 'down' });
+      stamp(g, b.x0, b.y0 + 5, P.headband);
+      stamp(g, b.x0 - 3, b.y0 + 5 + (k % 2), k % 2 ? P.tailA : P.tailB);
+      if (ultra) { stamp(g, b.x0 - 8, b.y0 + 2 + (k % 2), P.spark); stamp(g, b.x0 + 21, b.y0 + 3 - (k % 2), P.spark); }
+    };
+  }
+  S.high = { loop: false, frames: [[220, high(0)], [220, high(1)], [220, high(2)], [220, high(3)], [500, high(4)]] };
+  S.ultra = { loop: false, frames: [[160, high(0, 1)], [160, high(1, 1)], [160, high(2, 1)], [160, high(3, 1)], [160, high(4, 1)], [160, high(5, 1)], [500, high(6, 1)]] };
+
+  // Omnisciente: transformación Super Saiyan (luego se queda con el pelo dorado y el aura)
+  function ssj(k) {
+    return (g) => {
+      const charged = k >= 4;
+      const shake = k >= 2 && k <= 8 ? (k % 2 ? 1 : -1) : 0;
+      const b = body(g, { top: charged ? 'saiyan' : 'bud', eyes: k < 2 ? 'squint' : (k < 6 ? 'wide' : 'open'), squash: k < 2 ? 2 : 0,
+        dx: shake, armL: k >= 4 && k < 9 ? 'down' : undefined, armR: k >= 4 && k < 9 ? 'down' : undefined });
+      if (k >= 2) aura(g, k, k === 6 || k === 7 ? 2 : 1);
+      if (k >= 3 && k <= 9) {
+        stamp(g, b.x0 - 9 + (k % 2), b.y0 + 3 + (k % 3), P.bolt);
+        stamp(g, b.x0 + 23 - (k % 2), b.y0 + 6 - (k % 3), P.bolt);
+      }
+      if (k === 6) { stamp(g, b.x0 - 6, b.y0 - 6, P.spark); stamp(g, b.x0 + 19, b.y0 - 6, P.spark); }
+    };
+  }
+  S.saiyan = { loop: false, frames: [
+    [260, ssj(0)], [200, ssj(1)], [110, ssj(2)], [110, ssj(3)], [110, ssj(4)], [110, ssj(5)],
+    [180, ssj(6)], [180, ssj(7)], [120, ssj(8)], [120, ssj(9)], [600, ssj(10)],
+  ] };
+  // vuelve a la normalidad (al bajar el esfuerzo)
+  S.calm = { loop: false, frames: [[160, pose({ eyes: 'closed', squash: 1 })], [160, pose({ eyes: 'half' })], [300, pose({})]] };
+
+  // Micrófono: se pone la hoja en la oreja y escucha; luego toma notas
+  function listen(k) {
+    return (g) => {
+      const b = body(g, { eyes: k % 6 === 5 ? 'closed' : 'upright', armR: 'high' });
+      stamp(g, b.x0 + 16, b.y0 + 4, P.ear);
+      if (k % 2 === 0) stamp(g, b.x0 + 21, b.y0 + 5, P.arc1);
+      stamp(g, b.x0 + 23, b.y0 + 4, k % 2 ? P.arc2 : P.arc1);
+    };
+  }
+  S.listen = { loop: true, frames: [[300, listen(0)], [300, listen(1)], [300, listen(2)], [300, listen(3)], [300, listen(4)], [140, listen(5)]] };
+  function notes(k) {
+    return (g) => {
+      const b = body(g, { eyes: 'downright', armR: 'out' });
+      stamp(g, b.x0 + 19, b.y0 + 12, P.paper);
+      stamp(g, b.x0 + 23 + (k % 2), b.y0 + 9 + (k % 2), P.pencil);
+    };
+  }
+  S.notes = { loop: false, frames: [[220, notes(0)], [220, notes(1)], [220, notes(0)], [220, notes(1)], [220, notes(0)], [400, notes(1)]] };
+
+  // Modelos: Gas sale disparado, Liquid surfea una ola, Solid se vuelve piedra y saca el 1M
+  function gas(k) {
+    return (g) => {
+      const b = body(g, { eyes: 'right', dx: 2, legs: k % 2 ? 'stepL' : 'stepR' });
+      for (const [yy, len] of [[6, 8], [10, 11], [14, 7]]) fill(g, b.x0 - 4 - len - (k % 2) * 2, b.y0 + yy, len, 1, 'w');
+      stamp(g, b.x0 - 6 - (k % 3), b.y0 + 17, ['ZZ', 'Z.']);
+    };
+  }
+  S.gas = { loop: false, frames: [[110, gas(0)], [110, gas(1)], [110, gas(2)], [110, gas(3)], [110, gas(4)], [110, gas(5)], [300, pose({ eyes: 'happy' })]] };
+  function liquid(k) {
+    return (g) => {
+      const b = body(g, { eyes: 'happy', dy: k % 2 ? -1 : 0, armL: 'out', armR: 'out' });
+      const wave = ['..WW......WW......WW......WW..', '.WBBW....WBBW....WBBW....WBBW.', 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'];
+      stamp(g, b.x0 - 7 - (k % 4) * 2, b.y0 + 17 - (k % 2 ? -1 : 0), wave);
+      if (k % 2) { put(g, b.x0 - 3, b.y0 + 12, 'B'); put(g, b.x0 + 19, b.y0 + 11, 'B'); }
+    };
+  }
+  S.liquid = { loop: false, frames: [[160, liquid(0)], [160, liquid(1)], [160, liquid(2)], [160, liquid(3)], [160, liquid(4)], [160, liquid(5)], [300, pose({ eyes: 'happy' })]] };
+  function solid(k) {
+    return (g) => {
+      const stone = k < 3;
+      const b = body(g, { eyes: stone ? 'closed' : 'happy', armL: stone ? undefined : 'high', armR: stone ? undefined : 'high', squash: k === 3 ? 1 : 0 });
+      if (stone) {
+        tint(g, 0, 0, 54, 36, 'X', 'S');
+        tint(g, 0, 0, 54, 36, 'x', 't');
+        put(g, b.x0 + 5, b.y0 + 6, 't'); put(g, b.x0 + 6, b.y0 + 7, 't'); put(g, b.x0 + 6, b.y0 + 8, 't');
+        put(g, b.x0 + 11, b.y0 + 13, 't'); put(g, b.x0 + 10, b.y0 + 14, 't');
+        if (k === 2) { put(g, b.x0 - 2, b.y0 + 17, 'Z'); put(g, b.x0 + 17, b.y0 + 17, 'Z'); }
+      } else {
+        stamp(g, b.x0 + 19, b.y0 - 6, P.one);
+        stamp(g, b.x0 + 23, b.y0 - 6, P.em);
+      }
+    };
+  }
+  S.solid = { loop: false, frames: [[260, solid(0)], [260, solid(1)], [160, solid(2)], [120, solid(3)], [900, solid(4)]] };
+
+  // Imagen adjunta: mira la foto
+  S.photo = { loop: false, frames: [
+    [300, pose({ eyes: 'right', armR: 'out' }, (g, b) => stamp(g, b.x0 + 19, b.y0 + 7, P.polaroid))],
+    [900, pose({ eyes: 'upright', armR: 'out' }, (g, b) => stamp(g, b.x0 + 19, b.y0 + 7, P.polaroid))],
+    [110, pose({ eyes: 'closed', armR: 'out' }, (g, b) => stamp(g, b.x0 + 19, b.y0 + 7, P.polaroid))],
+    [500, pose({ eyes: 'right', armR: 'out' }, (g, b) => stamp(g, b.x0 + 19, b.y0 + 7, P.polaroid))],
+  ] };
+
+  // Detener: manos arriba
+  S.halt = { loop: false, frames: [
+    [120, pose({ eyes: 'wide', dy: -2, armL: 'high', armR: 'high' })],
+    [600, pose({ eyes: 'wide', armL: 'high', armR: 'high' }, (g, b) => stamp(g, b.x0 + 19, b.y0 - 2, P.bang))],
+    [300, pose({ eyes: 'half' })],
+  ] };
+
+  // Esperando tu aprobación: cartel con interrogación
+  function ask(k) {
+    return (g) => {
+      const b = body(g, { eyes: k === 3 ? 'closed' : 'downright', armR: 'out', legs: k % 2 ? 'stepR' : undefined });
+      stamp(g, b.x0 + 18, b.y0 + 3 + (k % 2 ? 0 : 1), P.sign);
+    };
+  }
+  S.ask = { loop: true, frames: [[380, ask(0)], [380, ask(1)], [380, ask(0)], [120, ask(3)], [380, ask(1)]] };
+
+  // npm install: levanta una caja de node_modules enorme
+  function npm(k) {
+    return (g) => {
+      const b = body(g, { eyes: k % 4 === 3 ? 'closed' : 'squint', squash: 2, armL: 'high', armR: 'high', dx: k % 2 ? 1 : 0 });
+      stamp(g, b.x0 - 1 + (k % 2), 2, P.box);
+      if (k % 3 === 0) stamp(g, b.x0 - 4, b.y0 + 6, P.drop);
+    };
+  }
+  S.npm = { loop: true, frames: [[300, npm(0)], [300, npm(1)], [300, npm(2)], [300, npm(3)], [300, npm(4)], [300, npm(5)]] };
+
+  // git push: empuja el commit
+  function git(k) {
+    return (g) => {
+      const b = body(g, { eyes: 'right', armR: 'out', dx: k % 4, legs: k % 2 ? 'stepL' : 'stepR' });
+      stamp(g, b.x0 + 20, b.y0 + 13, P.cube);
+      if (k % 2) stamp(g, b.x0 - 3, b.y0 + 17, ['Z.', '.Z']);
+    };
+  }
+  S.git = { loop: true, frames: [[200, git(0)], [200, git(1)], [200, git(2)], [200, git(3)], [500, git(3)]] };
+
+  // tests: repasa la lista; pasan (check y confeti) o fallan (se tapa la cara)
+  function tests(k) {
+    return (g) => {
+      const b = body(g, { eyes: k % 3 === 2 ? 'closed' : 'downright', armR: 'out' });
+      stamp(g, b.x0 + 18, b.y0 + 8, P.clipboard);
+      stamp(g, b.x0 + 24, b.y0 + 9 + (k % 3) * 2, P.pencil);
+    };
+  }
+  S.tests = { loop: true, frames: [[300, tests(0)], [300, tests(1)], [300, tests(2)], [300, tests(3)]] };
+  S.pass = { loop: false, frames: [
+    [160, pose({ eyes: 'happy', dy: -3, armL: 'high', armR: 'high' }, (g, b) => stamp(g, b.x0 + 4, 0, P.bigcheck))],
+    [160, pose({ eyes: 'happy', armL: 'up', armR: 'up' }, (g, b) => { stamp(g, b.x0 + 4, 0, P.bigcheck); stamp(g, b.x0 - 6, b.y0 + 2, P.confetti); })],
+    [600, pose({ eyes: 'happy' }, (g, b) => { stamp(g, b.x0 + 4, 0, P.bigcheck); stamp(g, b.x0 - 6, b.y0 + 5, P.confetti); stamp(g, b.x0 + 14, b.y0 + 3, P.confetti); })],
+    [300, pose({ eyes: 'happy' })],
+  ] };
+  S.fail = { loop: false, frames: [
+    [200, pose({ eyes: 'wide' }, (g, b) => stamp(g, b.x0 + 19, b.y0 - 3, P.cross))],
+    [900, pose({ eyes: 'closed', armL: 'up' }, (g, b) => { stamp(g, b.x0 + 19, b.y0 - 3, P.cross); stamp(g, b.x0 + 1, b.y0 + 7, ['LLLLLL', 'lLLLLL', '.LLLL.']); })],
+    [300, pose({ eyes: 'half' })],
+  ] };
+
+  // web: prismáticos
+  function web(k) {
+    return (g) => {
+      const b = body(g, { eyes: 'open', armL: 'up', armR: 'up' });
+      stamp(g, b.x0 + 4 + [-1, 0, 1, 0][k % 4], b.y0 + 7, P.binoculars);
+    };
+  }
+  S.web = { loop: true, frames: [[420, web(0)], [360, web(1)], [420, web(2)], [360, web(3)]] };
+
+  // borrar: tira la bola de papel a la papelera
+  S.trash = { loop: false, frames: [
+    [200, pose({ eyes: 'right', armR: 'up' }, (g, b) => { stamp(g, b.x0 + 26, b.y0 + 13, P.bin); stamp(g, b.x0 + 18, b.y0 + 6, P.ball); })],
+    [160, pose({ eyes: 'right', armR: 'out' }, (g, b) => { stamp(g, b.x0 + 26, b.y0 + 13, P.bin); stamp(g, b.x0 + 23, b.y0 + 4, P.ball); })],
+    [160, pose({ eyes: 'right' }, (g, b) => { stamp(g, b.x0 + 26, b.y0 + 13, P.bin); stamp(g, b.x0 + 28, b.y0 + 9, P.ball); })],
+    [500, pose({ eyes: 'happy' }, (g, b) => stamp(g, b.x0 + 26, b.y0 + 13, P.bin))],
+  ] };
+
+  // gags de reposo: se riega a sí mismo, se estira, mira el móvil
+  function water(k) {
+    return (g) => {
+      const b = body(g, { eyes: k >= 4 ? 'happy' : 'up', armR: 'high', top: k >= 5 ? 'twitch' : undefined });
+      stamp(g, b.x0 + 12, b.y0 - 6, P.wcan);
+      if (k >= 1 && k <= 4) { put(g, b.x0 + 11, b.y0 - 2 + (k % 2), 'B'); put(g, b.x0 + 9, b.y0 - 1 + ((k + 1) % 2), 'B'); put(g, b.x0 + 10, b.y0 + 1, 'B'); }
+    };
+  }
+  S.water = { loop: false, frames: [[400, water(0)], [200, water(1)], [200, water(2)], [200, water(3)], [200, water(4)], [600, water(5)], [300, pose({ eyes: 'happy' })]] };
+  S.stretch = { loop: false, frames: [
+    [300, pose({ eyes: 'closed', armL: 'up', armR: 'up' })],
+    [600, pose({ eyes: 'closed', dy: -2, armL: 'high', armR: 'high' })],
+    [300, pose({ eyes: 'closed', squash: 1 })],
+    [400, pose({ eyes: 'half' })],
+    [300, pose({})],
+  ] };
+  function phone(k) {
+    return (g) => {
+      const b = body(g, { eyes: k === 4 ? 'closed' : 'downright', armR: 'out' });
+      const scr = k % 2 ? ['DDDD', 'DWwD', 'DwwD', 'DwWD', 'DwwD', 'DDDD'] : P.phone;
+      stamp(g, b.x0 + 18, b.y0 + 10, scr);
+    };
+  }
+  S.phone = { loop: true, frames: [[500, phone(0)], [300, phone(1)], [500, phone(2)], [300, phone(3)], [120, phone(4)]] };
 
   // ── fotogramas ──────────────────────────────────────────────────────────────────────────────
   function sceneDuration(name) {
@@ -597,8 +984,10 @@
     const s = S[name] || S.idle;
     const g = blank();
     s.frames[Math.max(0, Math.min(i, s.frames.length - 1))][1](g);
+    if (MOD.saiyan && name !== 'saiyan' && name !== 'calm' && name !== 'solid') aura(g, i, 1);
     return g;
   }
+  function setMod(m) { Object.assign(MOD, m || {}); }
   function frame(name, t) { return frameAt(name, frameIndex(name, t || 0)); }
 
   function bbox(grids) {
@@ -731,70 +1120,115 @@
    * animation for minutes. set(state) with: idle | thinking | writing | reading | running | error |
    * done | grace | exhausted | debugging.
    */
+  // Work states hold their scene for a minimum time, so a 0.2 s tool call never flashes a scene.
+  const WORK = new Set(['thinking', 'writing', 'reading', 'running', 'web', 'npm', 'git', 'tests', 'debugging']);
+  const MIN_HOLD = 2200;
   function Director(player, opts) {
     this.p = player;
     this.opts = Object.assign({ sleepAfter: 60000 }, opts || {});
     this.state = 'idle';
-    this.since = Date.now();
+    this.since = 0;
     this.gagTimer = null;
     this.idleTimer = null;
+    this.holdTimer = null;
+    this.pending = null;
+    this.reacting = false;
+    this.paused = false;
     this.set('idle');
   }
   Director.prototype._base = function (state) {
     return {
       idle: 'idle', thinking: 'thinking', writing: 'typing', reading: 'reading', running: 'waiting',
       debugging: 'duck', grace: 'wilt', exhausted: 'sleep', done: 'idle', error: 'idle', watch: 'watch',
+      listening: 'listen', approval: 'ask', web: 'web', npm: 'npm', git: 'git', tests: 'tests',
     }[state] || 'idle';
   };
   Director.prototype.set = function (state) {
     const prev = this.state;
-    if (state === prev && state !== 'done' && state !== 'error') return;
+    if (state === prev && state !== 'done' && state !== 'error') { this.pending = null; return; }
+    // between two work scenes, keep the current one on screen for a moment
+    if (WORK.has(prev) && WORK.has(state) && Date.now() - this.since < MIN_HOLD) {
+      this.pending = state;
+      if (!this.holdTimer) {
+        this.holdTimer = setTimeout(() => {
+          this.holdTimer = null;
+          const next = this.pending;
+          this.pending = null;
+          if (next) this.set(next);
+        }, MIN_HOLD - (Date.now() - this.since));
+      }
+      return;
+    }
+    this.pending = null;
     if (state === 'error') this._afterError = (prev === 'error' || prev === 'done' || prev === 'hello') ? 'idle' : prev;
     this.state = state;
     this.since = Date.now();
     clearTimeout(this.gagTimer);
     clearTimeout(this.idleTimer);
-    if (state === 'done') { this.p.play('bloom', () => this.set('idle')); return; }
-    if (state === 'error') { this.p.play('oops', () => this.set(this._afterError || 'thinking')); return; }
-    if (state === 'hello') { this.p.play('hello', () => this.set('idle')); return; }
+    if (this.reacting) return;           // the reaction on screen finishes first, then shows this state
+    if (state === 'done') { this._oneShot('bloom', () => this.set('idle')); return; }
+    if (state === 'error') { this._oneShot('oops', () => this.set(this._afterError || 'thinking')); return; }
+    if (state === 'hello') { this._oneShot('hello', () => this.set('idle')); return; }
     this.p.play(this._base(state));
     this._scheduleGag();
   };
+  Director.prototype._oneShot = function (scene, after) {
+    this.p.play(scene, after);
+  };
+  /** A reaction to something the user did (mode, effort, model, mic, image…): plays now, then back. */
+  Director.prototype.react = function (scene, after) {
+    if (!S[scene]) return;
+    clearTimeout(this.gagTimer);
+    clearTimeout(this.idleTimer);
+    this.reacting = true;
+    this.p.play(scene, () => {
+      this.reacting = false;
+      if (after) after();
+      this.since = Date.now();
+      this.p.play(this._base(this.state));
+      this._scheduleGag();
+    });
+  };
+  Director.prototype.pause = function () { this.paused = true; clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); };
+  Director.prototype.resume = function () {
+    this.paused = false;
+    if (!this.reacting) { this.p.play(this._base(this.state)); this._scheduleGag(); }
+  };
   Director.prototype._scheduleGag = function () {
+    if (this.paused) return;
     const st = this.state;
     const gags = {
-      idle: [['coffee', 7000], ['duck', 5000], ['focus', 6000], ['can', 0], ['hello', 0], ['reading', 4000]],
+      idle: [['coffee', 7000], ['duck', 5000], ['focus', 6000], ['can', 0], ['hello', 0], ['reading', 4000],
+        ['water', 0], ['stretch', 0], ['phone', 5000]],
       thinking: [['coffee', 6000], ['can', 0]],
       writing: [['focus', 6000], ['coffee', 5000]],
-      running: [['coffee', 6000], ['can', 0], ['focus', 5000]],
+      running: [['coffee', 6000], ['can', 0], ['focus', 5000], ['phone', 4000]],
       debugging: [['fine', 5000], ['coffee', 5000]],
       reading: [['coffee', 4000]],
     }[st];
     if (st === 'idle') {
-      this.idleTimer = setTimeout(() => { if (this.state === 'idle') this.p.play('sleep'); }, this.opts.sleepAfter);
+      this.idleTimer = setTimeout(() => { if (this.state === 'idle' && !this.paused && !this.reacting) this.p.play('sleep'); }, this.opts.sleepAfter);
     }
     if (!gags) return;
-    const wait = st === 'idle' ? 14000 + Math.random() * 22000 : 9000 + Math.random() * 9000;
+    const wait = st === 'idle' ? 15000 + Math.random() * 20000 : 9000 + Math.random() * 9000;
     this.gagTimer = setTimeout(() => {
-      if (this.state !== st) return;
+      if (this.state !== st || this.paused || this.reacting) return;
+      if (this.opts.onGag && this.opts.onGag(st) === false) { this._scheduleGag(); return; }
       const [name, dur] = gags[Math.floor(Math.random() * gags.length)];
-      const back = () => { if (this.state === st) { this.p.play(this._base(st)); this._scheduleGag(); } };
+      const back = () => { if (this.state === st && !this.reacting) { this.p.play(this._base(st)); this._scheduleGag(); } };
       if (dur) { this.p.play(name); this.gagTimer = setTimeout(back, dur); }
       else this.p.play(name, back);
     }, wait);
   };
-  /** A gag right now (a click on Capu), then back to whatever it was doing. */
+  /** A click on Capu: an instant trick, then back to whatever it was doing. */
   Director.prototype.poke = function () {
-    const st = this.state;
-    const pick = ['hello', 'can', 'oops', 'bloom'][Math.floor(Math.random() * 4)];
-    clearTimeout(this.gagTimer);
-    clearTimeout(this.idleTimer);
-    this.p.play(pick, () => { if (this.state === st) { this.p.play(this._base(st)); this._scheduleGag(); } });
+    const pick = ['hello', 'can', 'oops', 'bloom', 'water', 'stretch', 'pass'][Math.floor(Math.random() * 7)];
+    this.react(pick);
   };
-  Director.prototype.stop = function () { clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); this.p.stop(); };
+  Director.prototype.stop = function () { clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); clearTimeout(this.holdTimer); this.p.stop(); };
 
   return {
-    PAL, W, H, SCENES: S, P, TOPS, base, blank, put, stamp, fill, body, frame, frameAt, frameIndex,
+    PAL, W, H, SCENES: S, P, TOPS, MOD, setMod, base, blank, put, stamp, fill, body, frame, frameAt, frameIndex,
     sceneDuration, bbox, sceneBox, centeredBox, toSVG, toANSI, Player, Director,
   };
 }));

@@ -10,7 +10,7 @@ const https = require('https');
 const { exec } = require('child_process');
 const { renderDiff, Status } = require('./ui');
 
-const MAX_TOOL_OUTPUT = 60000;
+const MAX_TOOL_OUTPUT = 40000;
 
 function countLines(text) {
   if (!text) return 0;
@@ -80,7 +80,7 @@ function previewChange(name, args = {}) {
     }
     if (name === 'edit_file') {
       const fullPath = path.resolve(process.cwd(), args.path || '');
-      if (!fs.existsSync(fullPath)) return { ok: false, error: `File not found: ${args.path}` };
+      if (!fs.existsSync(fullPath)) return { ok: false, error: `No existe el archivo: ${args.path}` };
       const content = fs.readFileSync(fullPath, 'utf-8');
       const oldStr = String(args.old_string ?? '');
       if (!content.includes(oldStr)) return { ok: false, error: `Could not find exact text match in ${args.path}.` };
@@ -98,7 +98,7 @@ const Tools = {
     try {
       const fullPath = path.resolve(process.cwd(), targetPath);
       if (!fs.existsSync(fullPath)) {
-        return { error: `File not found: ${targetPath}` };
+        return { error: `No existe el archivo: ${targetPath}` };
       }
       const stat = fs.statSync(fullPath);
       if (stat.isDirectory()) {
@@ -258,7 +258,7 @@ const Tools = {
     try {
       const fullPath = path.resolve(process.cwd(), targetPath);
       if (!fs.existsSync(fullPath)) {
-        return { error: `File not found: ${targetPath}` };
+        return { error: `No existe el archivo: ${targetPath}` };
       }
       const content = fs.readFileSync(fullPath, 'utf-8');
       if (!content.includes(old_string)) {

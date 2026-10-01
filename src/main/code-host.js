@@ -29,7 +29,8 @@ const LANG_BY_EXT = {
   '.env': 'ini', '.ps1': 'powershell', '.lua': 'lua', '.dart': 'dart', '.diff': 'diff', '.txt': 'plaintext',
 };
 
-const MODELS = ['deiza-omniscient', 'deiza-solid-5', 'deiza-gas-4.5'];
+// Solid 5 first: the default for Code (1M of context)
+const MODELS = ['deiza-solid-5', 'deiza-omniscient', 'deiza-gas-4.5'];
 const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid-5.1': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
 const EFFORTS = ['low', 'medium', 'high', 'ultra', 'max'];
 const MODES = ['build', 'copilot', 'plan'];
@@ -619,6 +620,12 @@ function init(opts) {
   dir = path.join(app.getPath('userData'), 'code');
   fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true });
   prefs = createStore('code-prefs', { recents: [], lastSession: '', defaultMode: 'build', defaultModel: MODELS[0], defaultEffort: 'medium', notify: true });
+  // 1.1.11: Solid 5 (1M context) becomes the default model for Code, once, for everyone still on the old default
+  if (prefs.get('modelDefaultV') !== 2) {
+    const cur = MODEL_ALIASES[prefs.get('defaultModel')] || prefs.get('defaultModel');
+    if (!cur || cur === 'deiza-omniscient') prefs.set('defaultModel', 'deiza-solid-5');
+    prefs.set('modelDefaultV', 2);
+  }
   resolveShellEnv(); // warm up: the first message should not wait for the login shell
   setInterval(() => {
     for (const [id, w] of workers) {
