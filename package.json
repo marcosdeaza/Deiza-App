@@ -1,11 +1,12 @@
 {
   "name": "deiza-desktop",
   "productName": "Deiza",
-  "version": "1.1.15",
+  "version": "1.1.16",
   "description": "Deiza para escritorio: el workspace completo y Deiza Code en una sola app.",
   "main": "src/main/main.js",
   "author": "Deiza Solutions <contact@deiza.org>",
   "homepage": "https://deiza.org/desktop",
+  "desktopName": "deiza-desktop.desktop",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -157,8 +158,26 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
-      "category": "Office"
+      "icon": "build/icons",
+      "category": "Office",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0 | libgtk-3-0t64",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0 | libatspi2.0-0t64",
+        "libuuid1",
+        "libsecret-1-0",
+        "libasound2 | libasound2t64",
+        "libgbm1",
+        "libdrm2",
+        "libxkbcommon0"
+      ]
     },
     "afterPack": "build/after-pack.js",
     "electronFuses": {

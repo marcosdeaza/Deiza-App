@@ -8,6 +8,8 @@ Windows taskbar. Small sizes (<= 48 px) are drawn separately with a heavier stro
   build/icon.icns  macOS
   build/icon.ico   Windows (16-256 px)
   build/icon-win.png, src/renderer/icon.png   window icon for Windows/Linux
+  build/icons/NxN.png   Linux icon theme sizes (16-512 px): the ChromeOS launcher and Linux
+                        desktops pick a small size and showed a generic icon with only 1024 px
 """
 import io, os, re, shutil, subprocess, tempfile
 from playwright.sync_api import sync_playwright
@@ -55,6 +57,11 @@ mac[1024].save(os.path.join(BUILD, 'icon.png'))
 win[256].save(os.path.join(BUILD, 'icon-win.png'))
 win[256].save(os.path.join(ROOT, 'src/renderer/icon.png'))
 win[256].save(os.path.join(BUILD, 'icon.ico'), sizes=[(s, s) for s in sorted(win)], append_images=[win[s] for s in sorted(win) if s != 256])
+
+linux = os.path.join(BUILD, 'icons')
+os.makedirs(linux, exist_ok=True)
+for s in (16, 24, 32, 48, 64, 128, 256, 512):
+    (win[s] if s <= 48 else mac[s]).save(os.path.join(linux, f'{s}x{s}.png'))
 
 if shutil.which('iconutil'):
     with tempfile.TemporaryDirectory() as tmp:

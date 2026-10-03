@@ -7,7 +7,8 @@
  *            bundle in place (keeping the old one until the new one is in) and reopens it
  *   Windows  download the NSIS installer and run it silently (per-user: no UAC); --force-run
  *            reopens the app when it finishes
- *   Linux    AppImage: swap the file in place and reopen; .deb or unknown: open the package
+ *   Linux    AppImage: swap the file in place and reopen; .deb: install it with apt when sudo works
+ *            without a password (the Linux container on Chromebooks), otherwise open the package
  * Every download is checked against the size (and sha256 when latest.json has it) before use.
  * If anything can't be done in place, the installer (or the download page) opens instead.
  */
@@ -64,6 +65,16 @@ function macBundle() {
   return bundle.endsWith('.app') ? bundle : '';
 }
 
+/** Installed from our .deb (/opt/Deiza, package deiza-desktop) rather than run from an AppImage. */
+const debInstall = () => !process.env.APPIMAGE && app.getPath('exe').startsWith('/opt/') && fs.existsSync('/var/lib/dpkg/info/deiza-desktop.list');
+// apt needs root. ChromeOS gives the Linux container's user sudo without a password, so updates can
+// install by themselves there; probed once at start, never prompts.
+let sudoWithoutPassword = false;
+function probeSudo() {
+  if (process.platform !== 'linux' || !debInstall()) return;
+  execFile('sudo', ['-n', 'true'], { timeout: 5000 }, (err) => { sudoWithoutPassword = !err; });
+}
+
 function writable(dir) {
   try { fs.accessSync(dir, fs.constants.W_OK); return true; } catch { return false; }
 }
@@ -88,6 +99,7 @@ function plan(info) {
       return { method: 'appimage-swap', file: image, target: process.env.APPIMAGE };
     }
     const deb = info.files && (info.files[`linux-deb${process.arch === 'arm64' ? '-arm64' : ''}`] || info.files['linux-deb']);
+    if (deb && debInstall() && sudoWithoutPassword) return { method: 'deb-install', file: deb };
     return deb ? { method: 'open', file: deb } : null;
   }
   return null;
@@ -245,6 +257,19 @@ if mv -f "$NEW" "$DEST" || cp -f "$NEW" "$DEST"; then chmod +x "$DEST"; rm -f "$
 nohup "$DEST" >/dev/null 2>&1 &
 `, { mode: 0o755 });
       spawn('/bin/sh', [script, String(process.pid), p.file, p.target], { detached: true, stdio: 'ignore' }).unref();
+    } else if (p.method === 'deb-install') {
+      // apt replaces /opt/Deiza, so it runs after this process is gone; if it fails, the old
+      // version is still installed and reopens.
+      const script = path.join(workDir(), 'apply.sh');
+      fs.writeFileSync(script, `#!/bin/sh
+PID="$1"; DEB="$2"; EXE="$3"; LOG="$4"
+unset DEIZA_UPDATE_URL DEIZA_UPDATE_AUTO
+i=0; while kill -0 "$PID" 2>/dev/null && [ $i -lt 150 ]; do sleep 0.2; i=$((i+1)); done
+sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades "$DEB" >"$LOG" 2>&1 || sudo -n dpkg -i "$DEB" >>"$LOG" 2>&1
+nohup "$EXE" >/dev/null 2>&1 &
+`, { mode: 0o755 });
+      const log = path.join(app.getPath('userData'), 'update.log');
+      spawn('/bin/sh', [script, String(process.pid), p.file, app.getPath('exe'), log], { detached: true, stdio: 'ignore' }).unref();
     }
     setTimeout(() => app.quit(), 150);
   } catch (err) {
@@ -271,6 +296,7 @@ function init(opts) {
   feedUrl = testFeed() || `${ORIGIN}/downloads/desktop/`;
   if (!feedUrl.endsWith('/')) feedUrl += '/';
   fs.rm(workDir(), { recursive: true, force: true }, () => {});
+  probeSudo();
   setTimeout(() => check(), 6000);
   setInterval(() => check(), CHECK_EVERY_MS).unref();
 }

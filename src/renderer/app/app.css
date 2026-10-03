@@ -111,7 +111,7 @@ body:not(.mac) ::-webkit-scrollbar-track { background: transparent; }
   -webkit-app-region: drag;
 }
 body.win #titlebar { padding: 0 150px 0 12px; }
-body.linux #titlebar { padding-left: 12px; }
+body.linux #titlebar { padding: 0 150px 0 12px; }
 body.fullscreen #titlebar { padding-left: 14px; }
 #titlebar button, #titlebar .no-drag { -webkit-app-region: no-drag; }
 .tb-group { display: flex; align-items: center; gap: 2px; }

@@ -146,14 +146,16 @@ function layout() {
   chatView.setBounds({ x: 0, y: TITLEBAR_H, width: w, height: Math.max(0, h - TITLEBAR_H) });
 }
 
+const titleBarOverlay = (t) => ({ color: WIN_MICA ? '#00000000' : t.bg, symbolColor: t.symbol, height: TITLEBAR_H });
+
 function applyTheme(next) {
   theme = next === 'light' ? 'light' : 'dark';
   const t = THEMES[theme];
   nativeTheme.themeSource = theme;
   if (win && !win.isDestroyed()) {
     if (!MATERIAL) win.setBackgroundColor(t.bg);
-    if (IS_WIN) {
-      try { win.setTitleBarOverlay({ color: WIN_MICA ? '#00000000' : t.bg, symbolColor: t.symbol, height: TITLEBAR_H }); } catch { /* older Windows */ }
+    if (!IS_MAC) {
+      try { win.setTitleBarOverlay(titleBarOverlay(t)); } catch { /* older Windows */ }
     }
   }
   state.set('theme', theme);
@@ -246,7 +248,9 @@ function createWindow() {
     backgroundMaterial: WIN_MICA ? 'mica' : undefined,
     titleBarStyle: IS_MAC ? 'hiddenInset' : 'hidden',
     trafficLightPosition: IS_MAC ? { x: 16, y: 15 } : undefined,
-    titleBarOverlay: IS_WIN ? { color: WIN_MICA ? '#00000000' : t.bg, symbolColor: t.symbol, height: TITLEBAR_H } : undefined,
+    // Windows and Linux draw their own minimise/maximise/close buttons over the hidden titlebar.
+    // Without the overlay a Linux window (Chromebooks included) had no way to be closed by mouse.
+    titleBarOverlay: IS_MAC ? undefined : titleBarOverlay(t),
     icon: IS_MAC ? undefined : path.join(RENDERER, 'icon.png'),
     webPreferences: {
       preload: path.join(ROOT, 'preload/app.js'),
