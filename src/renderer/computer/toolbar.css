@@ -1,0 +1,23 @@
+:root {
+  --bg: hsl(20 10% 10%); --raised: hsl(20 9% 15.5%); --fg: hsl(30 20% 90%); --muted-fg: hsl(30 15% 60%);
+  --border: hsl(30 15% 25%); --primary: hsl(354 50% 45%); --rose: hsl(354 48% 60%); --ochre: hsl(30 42% 64%);
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 52px; overflow: hidden; background: var(--bg); color: var(--fg); font: 13px/1 var(--sans); -webkit-user-select: none; user-select: none; }
+.bar { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+.nav { display: flex; gap: 2px; }
+button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--muted-fg); cursor: pointer; }
+button:hover:not(:disabled) { background: var(--raised); color: var(--fg); }
+button:disabled { opacity: .35; cursor: default; }
+svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.address { flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--raised); }
+.address:focus-within { border-color: var(--rose); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted-fg); flex: none; }
+.dot.loading { background: var(--ochre); animation: pulse 1s ease-in-out infinite; }
+.dot.secure { background: hsl(152 34% 58%); }
+input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; -webkit-user-select: text; user-select: text; }
+.badge { flex: none; padding: 5px 9px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 22%, transparent); color: var(--rose); font-size: 11px; letter-spacing: .02em; }
+.error { position: fixed; right: 12px; top: 58px; max-width: 60%; padding: 8px 10px; border-radius: 8px; background: hsl(354 28% 14%); color: hsl(354 52% 64%); font-size: 12px; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot.loading { animation: none; } }

@@ -265,9 +265,15 @@ function createBrowserController({ getOwner = () => null, navigationTimeoutMs = 
   }
   async function screenshot(t, args, ctx) {
     const wc = t.wc;
-    const image = await wc.capturePage();
+    let image = await wc.capturePage();
+    // capturePage returns device pixels (2x on Retina). Scale to CSS pixels so image coordinates
+    // match browser_click/browser_drag, and send JPEG unless the capture is being saved.
+    const b = t.view ? t.view.getBounds() : t.win.getContentBounds();
+    if (b.width && image.getSize().width > b.width) image = image.resize({ width: b.width, quality: 'good' });
     const size = image.getSize();
-    const buf = image.toPNG();
+    const png = !!(args.path || ctx.png);
+    const buf = png ? image.toPNG() : image.toJPEG(80);
+    const mime = png ? 'image/png' : 'image/jpeg';
     let saved;
     if (args.path) {
       if (!ctx.folder || path.isAbsolute(args.path)) throw new Error('Guarda la captura con una ruta relativa al proyecto.');
@@ -275,8 +281,8 @@ function createBrowserController({ getOwner = () => null, navigationTimeoutMs = 
       if (!inside(path.resolve(ctx.folder), saved)) throw new Error('La captura debe guardarse dentro del proyecto.');
       fs.mkdirSync(path.dirname(saved), { recursive: true }); fs.writeFileSync(saved, buf);
     }
-    return { ...info(t), mime_type: 'image/png', width: size.width, height: size.height,
-      coordinate_space: 'viewport', data_url: `data:image/png;base64,${buf.toString('base64')}`, ...(saved ? { path: saved } : {}) };
+    return { ...info(t), mime_type: mime, width: size.width, height: size.height,
+      coordinate_space: 'viewport', data_url: `data:${mime};base64,${buf.toString('base64')}`, ...(saved ? { path: saved } : {}) };
   }
   async function operate(t, name, args, ctx) {
     const signal = ctx.signal;
@@ -302,6 +308,18 @@ function createBrowserController({ getOwner = () => null, navigationTimeoutMs = 
         await command(t, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount: i, modifiers: mask }, signal);
         await command(t, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount: i, modifiers: mask }, signal);
       }
+    } else if (name === 'browser_drag') {
+      const b = t.view ? t.view.getBounds() : t.win.getContentBounds();
+      const pts = [args.from_x, args.from_y, args.to_x, args.to_y].map(Number);
+      if (pts.some(v => !Number.isFinite(v) || v < 0) || pts[0] >= b.width || pts[2] >= b.width || pts[1] >= b.height || pts[3] >= b.height) throw new Error('El arrastre debe empezar y acabar dentro de la captura del navegador.');
+      const [x1, y1, x2, y2] = pts;
+      await command(t, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: x1, y: y1 }, signal);
+      await command(t, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: x1, y: y1, button: 'left', buttons: 1, clickCount: 1 }, signal);
+      for (let i = 1; i <= 8; i++) {
+        const k = i / 8;
+        await command(t, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: x1 + (x2 - x1) * k, y: y1 + (y2 - y1) * k, button: 'left', buttons: 1 }, signal);
+      }
+      await command(t, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: x2, y: y2, button: 'left', buttons: 0, clickCount: 1 }, signal);
     } else if (name === 'browser_type') {
       const text = String(args.text || '');
       if (text.length > 100000) throw new Error('El texto es demasiado largo; introdúcelo por partes.');
@@ -316,7 +334,11 @@ function createBrowserController({ getOwner = () => null, navigationTimeoutMs = 
       const b = t.win.getContentBounds();
       await command(t, 'Input.dispatchMouseEvent', { type: 'mouseWheel', x: b.width / 2, y: b.height / 2, deltaX: dx, deltaY: dy }, signal);
     } else throw new Error('Acción de navegador desconocida.');
-    await wait(180, signal);
+    const observe = ['snapshot', 'screenshot', 'none'].includes(args.observe) ? args.observe : name === 'browser_drag' ? 'screenshot' : 'snapshot';
+    const settle = Number.isInteger(args.settle_ms) ? Math.min(Math.max(args.settle_ms, 0), 3000) : observe === 'none' ? 60 : 180;
+    if (settle) await wait(settle, signal);
+    if (observe === 'none') return { ...info(t), ok: true };
+    if (observe === 'screenshot') return screenshot(t, {}, { ...ctx, png: false });
     return snapshot(t, ctx);
   }
   async function execute(name, args = {}, ctx = {}) {

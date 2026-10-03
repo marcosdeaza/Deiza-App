@@ -63,6 +63,19 @@ function run() {
         $.CGEventPost(0,d); $.NSThread.sleepForTimeInterval(0.025); $.CGEventPost(0,u);
         $.NSThread.sleepForTimeInterval(0.045);
       }
+    } else if (a.op==='drag') {
+      // Left button down, a short eased path of dragged events, release: enough for web boards and sliders.
+      const from=$.CGPointMake(a.x,a.y), steps=10;
+      $.CGEventPost(0,$.CGEventCreateMouseEvent(null,5,from,0));
+      $.CGEventPost(0,$.CGEventCreateMouseEvent(null,1,from,0));
+      $.NSThread.sleepForTimeInterval(0.04);
+      for (let i=1;i<=steps;i++) {
+        const t=i/steps, e=t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+        $.CGEventPost(0,$.CGEventCreateMouseEvent(null,6,$.CGPointMake(a.x+(a.x2-a.x)*e,a.y+(a.y2-a.y)*e),0));
+        $.NSThread.sleepForTimeInterval(0.012);
+      }
+      $.NSThread.sleepForTimeInterval(0.03);
+      $.CGEventPost(0,$.CGEventCreateMouseEvent(null,2,$.CGPointMake(a.x2,a.y2),0));
     } else if (a.op==='type') {
       // System Events accepts Unicode directly, without replacing the user's clipboard.
       Application('System Events').keystroke(a.text);

@@ -766,6 +766,8 @@ function features() {
 const VERBS = {
   read_file: 'Leer', write_file: 'Escribir', append_file: 'Añadir', edit_file: 'Editar', run_command: 'Terminal',
   list_dir: 'Explorar', search_files: 'Buscar', fetch_url: 'Web', delete_path: 'Borrar', move_path: 'Mover',
+  web_search: 'Buscar en la web', image_search: 'Buscar fotos', download_file: 'Descargar',
+  browser_drag: 'Arrastrar', desktop_drag: 'Arrastrar', desktop_mouse_move: 'Mover puntero',
   invoke_subagent: 'Subagente', view_image: 'Imagen', update_plan: 'Plan',
   browser_open: 'Abrir navegador', browser_tabs: 'Ver pestañas', browser_snapshot: 'Leer página',
   browser_screenshot: 'Capturar página', browser_click: 'Clicar', browser_type: 'Escribir',
@@ -945,7 +947,7 @@ function toolHasBody(it) {
   if (it.name === 'run_command') return true;
   const d = it.detail;
   if (!d) return it.status === 'error' && Boolean(it.summary);
-  return Boolean(d.diff || d.report || (d.matches && d.matches.length) || (d.items && d.items.length) || (it.status === 'error' && it.summary));
+  return Boolean(d.diff || d.report || d.answer || (d.results && d.results.length) || (d.images && d.images.length) || (d.matches && d.matches.length) || (d.items && d.items.length) || (it.status === 'error' && it.summary));
 }
 
 function fillToolBody(body, it) {
@@ -974,6 +976,13 @@ function fillToolBody(body, it) {
     const pr = h('div', { class: 'prose sel', style: { fontSize: '13.5px', padding: '4px 0' } });
     updateProse(pr, { text: d.report }, true);
     body.append(pr);
+  }
+  if (d.answer) body.append(h('div', { class: 'list-mini sel', text: d.answer }));
+  if (d.results && d.results.length) {
+    body.append(h('div', { class: 'list-mini sel' }, d.results.map(r => h('div', null, h('b', { text: r.title || r.url }), `  ${r.url}`))));
+  }
+  if (d.images && d.images.length) {
+    body.append(h('div', { class: 'list-mini sel' }, d.images.map(r => h('div', null, h('b', { text: r.title || 'Foto' }), `  ${r.url}`))));
   }
   if (d.matches && d.matches.length) {
     body.append(h('div', { class: 'list-mini sel' }, d.matches.map(m => h('div', null, h('b', { text: `${m.file}:${m.line}` }), `  ${m.text}`))));
@@ -1306,7 +1315,7 @@ function capuFromStatus(st) {
     if (st.kind === 'running') capu.cmdKind = kind;
     return kind || 'running';
   }
-  if (n === 'fetch_url' || n.startsWith('browser_')) return 'web';
+  if (n === 'fetch_url' || n === 'web_search' || n === 'image_search' || n === 'download_file' || n.startsWith('browser_')) return 'web';
   if (/^desktop_(screenshot|apps)$/.test(n)) return 'reading';
   if (n.startsWith('desktop_')) return 'writing';
   if (/write|append|edit|move|delete/.test(n)) return 'writing';

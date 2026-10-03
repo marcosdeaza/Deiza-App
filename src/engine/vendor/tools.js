@@ -93,6 +93,88 @@ function previewChange(name, args = {}) {
   }
 }
 
+// Web and image search go through the Deiza account server (same pipeline as the chat).
+// The CLI sets an API key, the desktop app its session token, via setSearchAuth().
+let searchAuth = { base: 'https://deiza.org', headers: {} };
+function setSearchAuth({ base, apiKey, token } = {}) {
+  const headers = {};
+  if (apiKey) { headers['Authorization'] = `Bearer ${apiKey}`; headers['X-Api-Key'] = apiKey; }
+  if (token) headers['X-Auth-Token'] = token;
+  searchAuth = { base: String(base || 'https://deiza.org').replace(/\/+$/, ''), headers };
+}
+
+function deizaSearch(body, timeout = 30000) {
+  return new Promise((resolve) => {
+    let url;
+    try { url = new URL(`${searchAuth.base}/api/code/search`); } catch { return resolve({ error: 'Servidor de búsqueda no válido.' }); }
+    const payload = JSON.stringify(body);
+    const client = url.protocol === 'https:' ? https : http;
+    const req = client.request(url, {
+      method: 'POST', timeout,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), 'User-Agent': 'deiza-code', ...searchAuth.headers },
+    }, (res) => {
+      let raw = '';
+      res.setEncoding('utf-8');
+      res.on('data', (c) => { if (raw.length < 400000) raw += c; });
+      res.on('end', () => {
+        let data = null;
+        try { data = JSON.parse(raw); } catch { /* not JSON */ }
+        if (res.statusCode === 401 || res.statusCode === 403) return resolve({ error: 'La búsqueda necesita una sesión de Deiza válida. Vuelve a iniciar sesión.' });
+        if (res.statusCode >= 400 || !data) return resolve({ error: (data && (data.message || data.error)) || `La búsqueda falló (HTTP ${res.statusCode}).` });
+        resolve(data);
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', (err) => resolve({ error: err.message === 'timeout' ? 'La búsqueda tardó demasiado. Vuelve a intentarlo.' : err.message }));
+    req.end(payload);
+  });
+}
+
+const DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024;
+const IMAGE_MAGIC = [
+  ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/jpeg', [0xff, 0xd8, 0xff]], ['image/gif', [0x47, 0x49, 0x46]],
+  ['image/webp', [0x52, 0x49, 0x46, 0x46]], ['image/avif', null], ['image/svg+xml', null],
+];
+function sniffImage(buf) {
+  for (const [type, magic] of IMAGE_MAGIC) if (magic && magic.every((b, i) => buf[i] === b)) return type;
+  if (buf.length > 12 && buf.toString('latin1', 4, 12).match(/ftyp(avif|heic|mif1)/)) return 'image/avif';
+  const head = buf.slice(0, 400).toString('utf-8').trimStart().toLowerCase();
+  if (head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) return 'image/svg+xml';
+  return null;
+}
+
+function downloadBuffer(target, redirects = 0) {
+  return new Promise((resolve) => {
+    const client = target.protocol === 'https:' ? https : http;
+    const req = client.get(target, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36 deiza-code', 'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8' },
+      timeout: 25000,
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        if (redirects >= 5) return resolve({ error: 'Demasiadas redirecciones.' });
+        let next;
+        try { next = new URL(res.headers.location, target); } catch { return resolve({ error: 'Redirección no válida.' }); }
+        if (!/^https?:$/.test(next.protocol)) return resolve({ error: 'Redirección a un protocolo no admitido.' });
+        return downloadBuffer(next, redirects + 1).then(resolve);
+      }
+      if (res.statusCode !== 200) { res.resume(); return resolve({ error: `El servidor respondió HTTP ${res.statusCode}. Prueba con otra URL de image_search.` }); }
+      const declared = Number(res.headers['content-length'] || 0);
+      if (declared > DOWNLOAD_MAX_BYTES) { res.resume(); return resolve({ error: 'El archivo supera 25 MB.' }); }
+      const chunks = []; let size = 0;
+      res.on('data', (c) => {
+        size += c.length;
+        if (size > DOWNLOAD_MAX_BYTES) { req.destroy(); resolve({ error: 'El archivo supera 25 MB.' }); return; }
+        chunks.push(c);
+      });
+      res.on('end', () => resolve({ buffer: Buffer.concat(chunks), contentType: String(res.headers['content-type'] || ''), finalUrl: target.toString() }));
+      res.on('error', (err) => resolve({ error: err.message }));
+    });
+    req.on('timeout', () => req.destroy(new Error('La descarga tardó demasiado.')));
+    req.on('error', (err) => resolve({ error: err.message }));
+  });
+}
+
 const Tools = {
   async read_file({ path: targetPath, start_line, end_line }) {
     try {
@@ -236,6 +318,49 @@ const Tools = {
       req.on('timeout', () => { req.destroy(new Error('timeout')); });
       req.on('error', (err) => resolve({ error: err.message }));
     });
+  },
+
+  async web_search({ query, num = 6 }) {
+    if (!query || !String(query).trim()) return { error: 'query es obligatorio.' };
+    const res = await deizaSearch({ query: String(query).slice(0, 300), type: 'web', num: Math.min(Math.max(Number(num) || 6, 1), 10) });
+    if (res.error) return res;
+    return { query: res.query, answer: res.answer || '', results: res.results || [], note: 'Usa fetch_url sobre un resultado para leer la página completa.' };
+  },
+
+  async image_search({ query, num = 6, language = 'es' }) {
+    if (!query || !String(query).trim()) return { error: 'query es obligatorio.' };
+    const res = await deizaSearch({ query: String(query).slice(0, 300), type: 'images', num: Math.min(Math.max(Number(num) || 6, 1), 12), language });
+    if (res.error) return res;
+    const results = (res.results || []).map(r => ({ url: r.url, title: r.title, source_page: r.source }));
+    if (!results.length) return { query: res.query, results, note: 'Sin resultados verificados. Reformula con el sujeto concreto (por ejemplo "torre eiffel noche" en vez de una frase larga) o prueba en inglés con language="en".' };
+    return { query: res.query, results, note: 'URLs comprobadas. Guarda las que uses con download_file dentro del proyecto (p. ej. assets/img/nombre.jpg) y referencia la ruta local; no enlaces la URL remota en producción.' };
+  },
+
+  async download_file({ url, path: filePath, overwrite = false }) {
+    let target;
+    try { target = new URL(url); } catch { return { error: `URL no válida: ${url}` }; }
+    if (!/^https?:$/.test(target.protocol)) return { error: 'Solo se admiten URLs http(s).' };
+    if (!filePath) return { error: 'path es obligatorio.' };
+    const fullPath = path.resolve(process.cwd(), filePath);
+    if (!insideWorkspace(fullPath)) return { error: 'La descarga debe guardarse dentro de la carpeta del proyecto.' };
+    if (fs.existsSync(fullPath) && !overwrite) return { error: `${filePath} ya existe. Usa otro nombre u overwrite=true.` };
+    const res = await downloadBuffer(target);
+    if (res.error) return { error: res.error };
+    const buf = res.buffer;
+    if (!buf.length) return { error: 'El servidor devolvió un archivo vacío.' };
+    const sniffed = sniffImage(buf);
+    const ext = path.extname(fullPath).toLowerCase();
+    const wantsImage = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg'].includes(ext);
+    if (wantsImage && !sniffed) {
+      return { error: `La URL no devolvió una imagen (${res.contentType || 'tipo desconocido'}); probablemente es una página HTML o un bloqueo anti-hotlink. Prueba con otra URL de image_search.` };
+    }
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, buf);
+    const out = { path: path.relative(process.cwd(), fullPath), bytes: buf.length, content_type: sniffed || res.contentType };
+    if (wantsImage && sniffed && sniffed !== { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml' }[ext]) {
+      out.warning = `El contenido real es ${sniffed}; los navegadores lo muestran igual, pero puedes renombrar la extensión si lo prefieres.`;
+    }
+    return out;
   },
 
   async update_plan({ steps }) {
@@ -609,6 +734,44 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'web_search',
+    description: 'Search the web (Deiza Search) and get a short grounded answer plus source URLs. Use it for current docs, APIs, facts or anything you do not know for sure; then fetch_url the best result if you need details.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query, concise and specific.' },
+        num: { type: 'number', description: 'Max results (default 6, max 10).' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'image_search',
+    description: 'Find real photos on the internet for a subject. Returns verified, reachable image URLs (stock watermarks filtered out). Use short subject queries ("paella valenciana", "lamborghini huracan"). Then save each chosen image with download_file into the project. Never invent image URLs or use placeholder services when the user wants real photos.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The subject to photograph, 2-6 words.' },
+        num: { type: 'number', description: 'How many images (default 6, max 12).' },
+        language: { type: 'string', description: 'Query language, e.g. "es" or "en" (default "es"). English often gives more results for global subjects.' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'download_file',
+    description: 'Download a file (typically an image from image_search) from an http(s) URL and save it inside the project, e.g. assets/img/hero.jpg. Verifies that image paths really receive image bytes.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'http(s) URL to download.' },
+        path: { type: 'string', description: 'Relative destination path inside the project, with extension.' },
+        overwrite: { type: 'boolean', description: 'Replace an existing file (default false).' },
+      },
+      required: ['url', 'path'],
+    },
+  },
+  {
     name: 'update_plan',
     description: 'Show the user your step-by-step plan for a multi-step task and keep it updated as you progress (call it again with the new statuses). Use it at the start of any task with 3+ steps.',
     parameters: {
@@ -661,6 +824,7 @@ const TOOL_DEFINITIONS = [
 ];
 
 module.exports = {
+  setSearchAuth,
   Tools,
   TOOL_DEFINITIONS,
   MAX_TOOL_OUTPUT,

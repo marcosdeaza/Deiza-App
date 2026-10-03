@@ -96,7 +96,7 @@ async function execute(name, args = {}, ctx = {}) {
     // The broker owns screenshot writes, so both controllers use the same path/symlink policy.
     const safeArgs = { ...args };
     if (save) delete safeArgs.path;
-    const context = { ...ctx, mode, folder };
+    const context = { ...ctx, mode, folder, png: save };
     const task = name.startsWith('browser_') ? browser.execute(name, safeArgs, context) : desktop.execute(name, safeArgs, context);
     const result = await interruptible(task, ctx.signal);
     if (ctx.signal?.aborted) return aborted();

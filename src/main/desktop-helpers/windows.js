@@ -63,6 +63,7 @@ public class DeizaDesktop {
   switch($a.op) {
     'move' {if(-not [DeizaDesktop]::SetCursorPos($a.x,$a.y)){throw 'Windows no pudo mover el puntero.'}}
     'click' {if(-not [DeizaDesktop]::SetCursorPos($a.x,$a.y)){throw 'Windows no pudo mover el puntero.'};$flags=@{left=@(2,4);right=@(8,16);middle=@(32,64)}[$a.button];[DeizaDesktop]::Click($flags[0],$flags[1],$a.click_count)}
+    'drag' {if(-not [DeizaDesktop]::SetCursorPos($a.x,$a.y)){throw 'Windows no pudo mover el puntero.'};[DeizaDesktop]::MouseEvent(2);Start-Sleep -Milliseconds 40;for($i=1;$i -le 10;$i++){$t=$i/10;[void][DeizaDesktop]::SetCursorPos([int]($a.x+($a.x2-$a.x)*$t),[int]($a.y+($a.y2-$a.y)*$t));Start-Sleep -Milliseconds 12};Start-Sleep -Milliseconds 30;[DeizaDesktop]::MouseEvent(4)}
     'type' {[DeizaDesktop]::Text([string]$a.text)}
     'key' {[ushort[]]$mods=@($a.modifiers | ForEach-Object { @{control=17;alt=18;shift=16;meta=91}[$_] });[DeizaDesktop]::Chord($a.key_code,$mods,$a.extended)}
     'scroll' {if($a.delta_y){[DeizaDesktop]::MouseEvent(2048,-[int]$a.delta_y)};if($a.delta_x){[DeizaDesktop]::MouseEvent(4096,[int]$a.delta_x)}}

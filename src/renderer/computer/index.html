@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Navegador · Deiza Code</title>
+  <link rel="stylesheet" href="toolbar.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="nav">
+      <button id="back" title="Atrás" aria-label="Atrás"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
+      <button id="forward" title="Adelante" aria-label="Adelante"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button id="reload" title="Recargar" aria-label="Recargar"><svg viewBox="0 0 16 16" id="reload-icon"><path d="M13 8a5 5 0 1 1-1.5-3.55M13 3v3h-3"/></svg></button>
+    </div>
+    <form id="form" class="address" autocomplete="off">
+      <span class="dot" id="dot"></span>
+      <input id="url" spellcheck="false" aria-label="Dirección" placeholder="Escribe una dirección">
+    </form>
+    <span class="badge" title="Deiza Code controla esta ventana">Deiza Code</span>
+  </header>
+  <div class="error" id="error" hidden></div>
+  <script src="toolbar.js"></script>
+</body>
+</html>

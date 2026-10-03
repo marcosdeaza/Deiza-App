@@ -112,7 +112,7 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
     const b=screen.screenToDipPoint({x:bounds.x+bounds.width,y:bounds.y+bounds.height});
     return {x:a.x,y:a.y,width:b.x-a.x,height:b.y-a.y};
   }
-  async function capture(source,maxWidth,ctx) {
+  async function capture(source,maxWidth,ctx,png=false) {
     const partition=`deiza-capture-${crypto.randomBytes(12).toString('hex')}`;
     const ses=session.fromPartition(partition,{cache:false});
     let win;
@@ -147,7 +147,7 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
             const ratio=Math.min(1,${maxWidth}/video.videoWidth);
             const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(video.videoWidth*ratio));canvas.height=Math.max(1,Math.round(video.videoHeight*ratio));
             canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
-            return {data_url:canvas.toDataURL('image/png'),width:canvas.width,height:canvas.height,native_width:video.videoWidth,native_height:video.videoHeight};
+            return {data_url:canvas.toDataURL(${png?"'image/png'":"'image/jpeg',0.8"}),mime_type:${png?"'image/png'":"'image/jpeg'"},width:canvas.width,height:canvas.height,native_width:video.videoWidth,native_height:video.videoHeight};
           } finally {if(stream)stream.getTracks().forEach(track=>track.stop());}
         })()`,true);
       })();
@@ -175,7 +175,7 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
     return target;
   }
   async function screenshot(args,ctx,state) {
-    const maxWidth=Math.round(boundedNumber(args.max_width,'max_width',320,3840,1600));
+    const maxWidth=Math.round(boundedNumber(args.max_width,'max_width',320,3840,1280));
     const sourceId=args.source_id===undefined?null:textArg(args.source_id,'source_id');
     const displayId=args.display_id===undefined?null:String(args.display_id);
     if(platform==='darwin'&&systemPreferences.getMediaAccessStatus('screen')==='denied')throw Error('Deiza no tiene permiso de grabación de pantalla. Autorízalo en Ajustes del Sistema → Privacidad y seguridad → Grabación de pantalla.');
@@ -200,9 +200,11 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
     } else {
       const display=screen.getAllDisplays().find(d=>String(d.id)===source.display_id);
       if(display)bounds=display.bounds;
-      if(!isWayland()){try{pid=(await current(ctx)).pid;}catch(e){checkAbort(ctx.signal);}}
     }
-    const image=await capture(source,maxWidth,ctx);
+    const wantPng=!!(ctx.png||args.path);
+    const pidTask=!source.id.startsWith('window:')&&!isWayland()?current(ctx).then(r=>r.pid,()=>undefined):null;
+    const image=await capture(source,maxWidth,ctx,wantPng);
+    if(pidTask)pid=await pidTask;
     checkAbort(ctx.signal);
     if(!image.width||!image.height||image.data_url.length>20*1024*1024)throw Error('La captura excede el tamaño disponible. Reduce max_width e inténtalo de nuevo.');
     if(platform==='darwin'&&source.id.startsWith('window:')&&bounds) {
@@ -214,9 +216,9 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
       if(dx>=0&&dx<=4&&dy>=0&&dy<=4)bounds={x:bounds.x+dx/2,y:bounds.y+dy/2,width:w,height:h};
     }
     const scale=bounds?{x:bounds.width/image.width,y:bounds.height/image.height}:null;
-    state.capture={source_id:source.id,display_id:source.display_id||null,bounds,width:image.width,height:image.height,scale,at:Date.now()};
+    state.capture={source_id:source.id,display_id:source.display_id||null,bounds,width:image.width,height:image.height,scale,max_width:maxWidth,at:Date.now()};
     state.pid=pid||null;
-    const result={...image,mime_type:'image/png',source_id:source.id,display_id:source.display_id||null,bounds:bounds||null,coordinate_scale:scale,coordinate_space:'screenshot_pixels',coordinate_hint:scale?'desktop_click x,y usa píxeles de esta captura; Deiza los convierte a puntos globales de pantalla.':'El portal no devuelve coordenadas globales; el control de esta captura no está disponible.'};
+    const result={...image,source_id:source.id,display_id:source.display_id||null,bounds:bounds||null,coordinate_scale:scale,coordinate_space:'screenshot_pixels',coordinate_hint:scale?'desktop_click x,y usa píxeles de esta captura; Deiza los convierte a puntos globales de pantalla.':'El portal no devuelve coordenadas globales; el control de esta captura no está disponible.'};
     if(args.path)result.path=await saveScreenshot(args.path,image.data_url,ctx);
     return result;
   }
@@ -228,6 +230,26 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
     if(linux){input_supported=!isWayland()&&!!process.env.DISPLAY;if(input_supported&&linuxTool===undefined){try{const p=await runProcess('xdotool',['--version'],{timeout:3000});linuxTool=p.code===0;}catch{linuxTool=false;}}input_supported=input_supported&&linuxTool===true;input_reason=isWayland()?'Control de escritorio no disponible en Wayland.':!process.env.DISPLAY?'No hay sesión gráfica X11.':!linuxTool?'Se necesita xdotool en X11.':null;}
     if(!['darwin','win32','linux'].includes(platform))input_reason='Sistema no admitido para controlar aplicaciones.';
     return {platform,screenshot:true,input:input_supported,screen_permission,accessibility_permission,...(input_reason?{input_reason}:{}),audio:false,background_monitoring:false};
+  }
+  function mapPoint(x,y,args,state) {
+    x=boundedNumber(x,'x',-100000,100000);y=boundedNumber(y,'y',-100000,100000);
+    const space=args.coordinate_space||'screenshot';if(!['screen','screenshot'].includes(space))throw Error('coordinate_space debe ser screenshot o screen.');
+    if(space==='screenshot') {const c=state.capture;if(!c?.bounds||!c.scale)throw Error('Toma una captura de la fuente seleccionada antes de mover el ratón o clicar.');if(Date.now()-c.at>120000)throw Error('La captura ha caducado. Toma otra para clicar con coordenadas actuales.');if(args.source_id&&args.source_id!==c.source_id||args.display_id!==undefined&&String(args.display_id)!==c.display_id)throw Error('Las coordenadas corresponden a otra fuente. Toma una captura de la seleccionada.');if(x<0||x>=c.width||y<0||y>=c.height)throw Error('El punto debe estar dentro de la captura.');x=c.bounds.x+x*c.scale.x;y=c.bounds.y+y*c.scale.y;}
+    if(!screen.getAllDisplays().some(d=>x>=d.bounds.x&&y>=d.bounds.y&&x<d.bounds.x+d.bounds.width&&y<d.bounds.y+d.bounds.height))throw Error('El punto está fuera de las pantallas visibles.');
+    if(platform==='win32'||platform==='linux')({x,y}=screen.dipToScreenPoint({x:Math.round(x),y:Math.round(y)}));
+    return {x:Math.round(x),y:Math.round(y)};
+  }
+  // Act and look in one call: a fresh capture of the same surface saves a whole model round trip.
+  async function observe(args,ctx,state,result,prev) {
+    if(args.observe===false)return result;
+    const c=prev||state.capture;
+    const ms=Math.round(boundedNumber(args.settle_ms,'settle_ms',0,3000,250));
+    if(ms){await new Promise(r=>setTimeout(r,ms));}
+    checkAbort(ctx.signal);
+    try {
+      const shot=await screenshot(c?{source_id:c.source_id,max_width:c.max_width}:{},{...ctx,png:false},state);
+      return {...result,...shot,message:'Acción hecha. La captura adjunta muestra el estado actual; sus coordenadas valen para las siguientes acciones.'};
+    } catch(e) { if(e.code==='ABORT_ERR')throw e; return {...result,observe_error:String(e.message||e).slice(0,300)}; }
   }
   async function perform(name,args,ctx) {
     if(stopped)throw Error('El control del ordenador se ha cerrado.');checkAbort(ctx.signal);
@@ -243,18 +265,16 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
       else result=await native('focus',{app,window_id:windowId},ctx);
       state.pid=result.pid;state.capture=null;return result;
     }
-    if(!['desktop_click','desktop_mouse_move','desktop_type','desktop_key','desktop_scroll'].includes(name))throw Error('Herramienta de escritorio desconocida.');
+    if(!['desktop_click','desktop_drag','desktop_mouse_move','desktop_type','desktop_key','desktop_scroll'].includes(name))throw Error('Herramienta de escritorio desconocida.');
     if(!state.pid)throw Error('Selecciona una aplicación con desktop_focus o toma una captura antes de controlarla.');
     if(platform==='darwin'&&!systemPreferences.isTrustedAccessibilityClient(true))throw Error('Deiza necesita permiso de Accesibilidad. Autorízalo en Ajustes del Sistema → Privacidad y seguridad → Accesibilidad y vuelve a intentarlo.');
     const a={target_pid:state.pid};
     if(name==='desktop_click'||name==='desktop_mouse_move') {
-      let x=boundedNumber(args.x,'x',-100000,100000),y=boundedNumber(args.y,'y',-100000,100000);
-      const space=args.coordinate_space||'screenshot';if(!['screen','screenshot'].includes(space))throw Error('coordinate_space debe ser screenshot o screen.');
-      if(space==='screenshot') {const c=state.capture;if(!c?.bounds||!c.scale)throw Error('Toma una captura de la fuente seleccionada antes de mover el ratón o clicar.');if(Date.now()-c.at>120000)throw Error('La captura ha caducado. Toma otra para clicar con coordenadas actuales.');if(args.source_id&&args.source_id!==c.source_id||args.display_id!==undefined&&String(args.display_id)!==c.display_id)throw Error('Las coordenadas corresponden a otra fuente. Toma una captura de la seleccionada.');if(x<0||x>=c.width||y<0||y>=c.height)throw Error('El punto debe estar dentro de la captura.');x=c.bounds.x+x*c.scale.x;y=c.bounds.y+y*c.scale.y;}
-      if(!screen.getAllDisplays().some(d=>x>=d.bounds.x&&y>=d.bounds.y&&x<d.bounds.x+d.bounds.width&&y<d.bounds.y+d.bounds.height))throw Error('El punto está fuera de las pantallas visibles.');
-      if(platform==='win32'||platform==='linux')({x,y}=screen.dipToScreenPoint({x:Math.round(x),y:Math.round(y)}));
-      Object.assign(a,{x:Math.round(x),y:Math.round(y),button:args.button||'left',click_count:boundedNumber(args.click_count,'click_count',1,2,1)});
+      Object.assign(a,mapPoint(args.x,args.y,args,state),{button:args.button||'left',click_count:boundedNumber(args.click_count,'click_count',1,2,1)});
       if(!['left','right','middle'].includes(a.button)||!Number.isInteger(a.click_count))throw Error('Usa left, right o middle y click_count 1 o 2.');
+    } else if(name==='desktop_drag') {
+      const from=mapPoint(args.from_x,args.from_y,args,state),to=mapPoint(args.to_x,args.to_y,args,state);
+      Object.assign(a,{x:from.x,y:from.y,x2:to.x,y2:to.y});
     } else if(name==='desktop_type')a.text=textArg(args.text,'text',16000);
     else if(name==='desktop_key')Object.assign(a,parseKey(args,platform));
     else Object.assign(a,{delta_y:Math.round(boundedNumber(args.delta_y,'delta_y',-4000,4000,0)),delta_x:Math.round(boundedNumber(args.delta_x,'delta_x',-4000,4000,0))});
@@ -263,12 +283,18 @@ function createDesktopController({ getOwner=()=>null, outputDir, platform=proces
       const active=await current(ctx);if(active.pid!==a.target_pid)throw Error('La aplicación activa ha cambiado. Vuelve a seleccionarla con desktop_focus.');
       if(op==='click')await xdo(['mousemove','--sync',String(a.x),String(a.y),'click','--repeat',String(a.click_count),'--delay','70',String({left:1,middle:2,right:3}[a.button])],ctx);
       else if(op==='move')await xdo(['mousemove','--sync',String(a.x),String(a.y)],ctx);
+      else if(op==='drag')await xdo(['mousemove','--sync',String(a.x),String(a.y),'mousedown','1','sleep','0.05','mousemove','--sync',String(Math.round((a.x+a.x2)/2)),String(Math.round((a.y+a.y2)/2)),'sleep','0.03','mousemove','--sync',String(a.x2),String(a.y2),'sleep','0.05','mouseup','1'],ctx);
       else if(op==='type')await xdo(['type','--clearmodifiers','--delay','0','--file','-'],ctx,a.text);
       else if(op==='key')await xdo(['key','--clearmodifiers',[...a.modifiers.map(m=>({control:'ctrl',alt:'alt',shift:'shift',meta:'super'}[m])),a.key_code].join('+')],ctx);
       else {for(const [delta,buttons]of [[a.delta_y,[4,5]],[a.delta_x,[6,7]]])if(delta)await xdo(['click','--repeat',String(Math.min(40,Math.max(1,Math.round(Math.abs(delta)/100)))),'--delay','20',String(buttons[delta>0?1:0])],ctx);}
     } else await native(op,a,ctx);
-    if(op==='click'||op==='key'||op==='scroll'||op==='type'||op==='move')state.capture=null;
-    return {ok:true,...(op==='type'?{characters:a.text.length}:op==='click'||op==='move'?{x:a.x,y:a.y}:{}),message:op==='move'?'Puntero movido al punto.':'Operación completada. Toma otra captura para comprobar el resultado.'};
+    // Clicks, drags, keys and typing do not move the surface, so the capture's coordinates stay
+    // valid for the next action (two clicks to move a piece). Scrolling does move it.
+    const prev=state.capture;
+    if(op==='scroll')state.capture=null;
+    const done={ok:true,...(op==='type'?{characters:a.text.length}:op==='click'||op==='move'?{x:a.x,y:a.y}:{}),message:op==='move'?'Puntero movido al punto.':'Operación completada.'};
+    if(op==='move')return done;
+    return observe(args,ctx,state,done,prev);
   }
   return {
     capabilities,
