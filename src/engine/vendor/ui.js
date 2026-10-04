@@ -391,6 +391,10 @@ const COMMANDS_REGISTRY = [
   { cmd: '/new', args: '[título]', desc: 'Iniciar una nueva conversación limpia en este workspace', cat: 'Conversaciones' },
   { cmd: '/paste', args: '', desc: 'Pegar captura del portapapeles (Win+Shift+S / PrtScn / Cmd+Shift+4)', cat: 'Herramientas' },
   { cmd: '/image', args: '<ruta> [inst]', desc: 'Analizar capturas o maquetas con visión multimodal', cat: 'Herramientas' },
+  { cmd: '/attach', args: '<rutas>', desc: 'Adjuntar archivos, carpetas, ZIP e imágenes a la siguiente petición', cat: 'Herramientas' },
+  { cmd: '/attachments', args: '[clear]', desc: 'Ver o retirar los adjuntos preparados', cat: 'Herramientas' },
+  { cmd: '/computer', args: '', desc: 'Comprobar la conexión con el navegador y control del equipo de Deiza', cat: 'Herramientas' },
+  { cmd: '/browser', args: '', desc: 'Alias de /computer', cat: 'Herramientas' },
   { cmd: '/agent', args: '<rol> <tarea>', desc: 'Lanzar un subagente worker aislado (ej: Auditor, Tester)', cat: 'Agentes' },
   { cmd: '/whoami', args: '', desc: 'Ver tu cuenta, plan, tokens y cuota activa', cat: 'Cuenta' },
   { cmd: '/usage', args: '', desc: 'Consultar consumo de tokens y ventana de 5 horas', cat: 'Cuenta' },
@@ -442,7 +446,7 @@ function renderCommandPalette(filter = '') {
 /**
  * Format /whoami account profile view
  */
-function renderWhoami({ email, name, plan, apiKey, apiBase, isCustom, usage, currentMode }) {
+function renderWhoami({ email, name, plan, apiKey, apiBase, isCustom, usage, currentMode, model }) {
   const usedPct = usage && usage.token_limit > 0 ? Math.round((usage.tokens_used / usage.token_limit) * 100) : 0;
   const mins = usage?.reset_in_seconds ? Math.ceil(usage.reset_in_seconds / 60) : 0;
   const resetText = mins > 0 ? `Se reinicia en ${Math.floor(mins / 60)}h ${mins % 60}m` : '0% (se iniciará al enviar un mensaje)';
@@ -457,8 +461,17 @@ function renderWhoami({ email, name, plan, apiKey, apiBase, isCustom, usage, cur
   if (usage) {
     content += `${C.white}Tokens Utilizados:${C.reset}  ${usage.tokens_used.toLocaleString()} / ${usage.token_limit.toLocaleString()} (${usedPct}%)\n`;
     content += `${C.white}Ventana 5 Horas:${C.reset}    ${C.gray}${resetText}${C.reset}\n`;
+    if (usage.weekly_limit) {
+      const ws = Number(usage.weekly_reset_in_seconds || 0);
+      const wd = Math.floor(ws / 86400), wh = Math.floor((ws % 86400) / 3600), wm = Math.floor((ws % 3600) / 60);
+      const wIn = ws > 0 ? (wd ? `${wd}d ${wh}h` : `${wh}h ${wm}m`) : '';
+      content += `${C.white}Semana:${C.reset}             ${Math.round(usage.weekly_pct || 0)}% de ${Number(usage.weekly_limit).toLocaleString()}${wIn ? ` ${C.gray}· se reinicia entera en ${wIn}${C.reset}` : ''}\n`;
+    }
   }
-  content += `${C.white}Motor de Inferencia:${C.reset} ${isCustom ? `${C.granateBright}${C.reset}` : `${C.granateBright}Deiza Omniscient${C.reset} ${C.gray}[Deiza Liquid 5.1 · infraestructura dedicada]${C.reset}`}`;
+  // 2.5.1: the real model (Solid 5 is the default since 2.4) instead of the old "Deiza Omniscient" label
+  const m = String(model || '').toLowerCase();
+  const modelName = m.includes('solid') ? 'Deiza Solid 5' : m.includes('gas') ? 'Deiza Gas 4.5' : (m.includes('liquid') || m.includes('omniscient')) ? 'Deiza Liquid 5.1' : (model || 'Deiza Solid 5');
+  content += `${C.white}Modelo:${C.reset}             ${isCustom ? `${C.granateBright}${model || '-'}${C.reset}` : `${C.granateBright}${modelName}${C.reset} ${C.gray}[cámbialo con /model · infraestructura dedicada de Deiza]${C.reset}`}\n`;
 
   return box('Perfil de Usuario — Deiza Code', content, C.granate);
 }
@@ -689,5 +702,4 @@ module.exports = {
   renderCompactionCard,
   selectSessionInteractive,
 };
-
 

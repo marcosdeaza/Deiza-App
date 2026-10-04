@@ -149,7 +149,7 @@ const tildeHome = (p) => (S.home && p.startsWith(S.home) ? `~${p.slice(S.home.le
 
 const S = {
   mode: 'chat', theme: 'dark', platform: 'darwin', home: '', auth: { signedIn: false, user: null },
-  sessions: [], recents: [], cur: null, loading: null,
+  sessions: [], recents: [], cur: null, loading: null, loadVersion: 0, loadingEvents: [],
   pendingFolder: null, defaultMode: localStorage.getItem('deiza:code:mode') || 'build',
   model: 'deiza-solid-5', effort: 'medium', language: 'es',
   drafts: new Map(), images: [], attachments: [], attachmentDrafts: new Map(), attachmentPending: 0,
@@ -547,17 +547,30 @@ async function refreshSessions() {
 
 // ── sessions ──────────────────────────────────────────────────────────────────
 
-async function openSession(id) {
-  if (S.cur && S.cur.id === id) return;
+async function openSession(id, force = false) {
+  const sameSession = Boolean(S.cur && S.cur.id === id);
+  if (!force && sameSession) return;
   saveDraft();
-  S.images = [];
-  const oldAtts = $('#composer-wrap .atts, .start .atts');
-  if (oldAtts) { oldAtts.innerHTML = ''; oldAtts.classList.add('hidden'); }
+  if (!sameSession) {
+    S.images = [];
+    const oldAtts = $('#composer-wrap .atts, .start .atts');
+    if (oldAtts) { oldAtts.innerHTML = ''; oldAtts.classList.add('hidden'); }
+  }
   S.loading = id;
-  const doc = await deiza.code.get(id);
-  if (S.loading !== id) return;
+  S.loadingEvents = [];
+  const version = ++S.loadVersion;
+  let doc;
+  try { doc = await deiza.code.get(id); } catch { /* preserve the draft and the existing session */ }
+  if (S.loading !== id || version !== S.loadVersion) return;
+  const queued = S.loadingEvents;
   S.loading = null;
-  if (!doc) { toast('No se encontró la sesión'); return; }
+  S.loadingEvents = [];
+  if (!doc) {
+    for (const event of queued) onCodeEvent(event);
+    refreshAttachments();
+    toast('No se encontró la sesión');
+    return;
+  }
   S.cur = { ...doc, running: doc.running };
   S.pendingFolder = null;
   S.attachments = (S.attachmentDrafts.get(id) || []).slice();
@@ -570,6 +583,8 @@ async function openSession(id) {
   renderThread();
   renderPanel();
   scrollToBottom(true);
+  // Events can arrive while the IPC snapshot is loading; its seq removes duplicates on replay.
+  for (const event of queued.sort((a, b) => a.seq - b.seq)) onCodeEvent(event);
 }
 
 function startNew(folder) {
@@ -1227,6 +1242,8 @@ function renderTurn(it) {
   const st = it.stats || {};
   const parts = [];
   if (it.stopReason === 'done') parts.push(h('span', { class: 'ok', text: `Hecho en ${fmtDuration(it.elapsedMs)}` }));
+  else if (it.stopReason === 'incomplete') parts.push(h('span', { class: 'warn', text: T('Queda trabajo pendiente') }));
+  else if (it.stopReason === 'blocked') parts.push(h('span', { class: 'warn', text: T('Necesita tu ayuda') }));
   else if (it.stopReason === 'aborted') parts.push(h('span', { class: 'warn', text: 'Detenido' }));
   else if (it.stopReason === 'max_turns') parts.push(h('span', { class: 'warn', text: 'Pausa: escribe «continúa» para seguir' }));
   else if (it.stopReason === 'stuck') parts.push(h('span', { class: 'warn', text: 'El agente se atascó: prueba a dividir la petición' }));
@@ -2666,6 +2683,7 @@ function initResizer() {
 
 function onCodeEvent({ id, seq, ev }) {
   if (ev && ev.t === 'quota') { applyQuota(ev); return; }
+  if (S.loading === id) { S.loadingEvents.push({ id, seq, ev }); return; }
   if (ev && ev.t === 'context_set') {
     if (S.cur && S.cur.id === id) { S.cur.context = { ...(S.cur.context || {}), used: ev.used, limit: ev.limit, estimated: true }; updateCtxMeter(); }
     return;
@@ -2674,7 +2692,7 @@ function onCodeEvent({ id, seq, ev }) {
     if (ev.t === 'turn_end') refreshSessions();
     return;
   }
-  if (S.loading === id || seq <= (S.cur.seq || 0)) return;
+  if (seq <= (S.cur.seq || 0)) return;
   S.cur.seq = seq;
   if (ev.t === 'status') {
     S.status = { ...ev, since: Date.now() };
@@ -2708,7 +2726,7 @@ function onCodeEvent({ id, seq, ev }) {
     if (ev.t === 'turn_end') {
       S.cur.running = false; S.status = null;
       const ok = ev.stopReason === 'done';
-      S.afterglow = Date.now() + (ok ? 2600 : 0);
+      S.afterglow = ok ? Date.now() + 2600 : 0;
       S.afterglowText = ok ? T('Hecho') : '';
       capu.fails = 0;
       if (capuEnabled()) { if (ok) capuSet('done'); else capuSet('idle'); }
@@ -2808,7 +2826,7 @@ async function boot() {
     else if (cmd === 'open-folder') deiza.code.pickFolder().then(f => f && startNew(f));
     else if (cmd && cmd.open) openSession(cmd.open);
     // the open session changed on another device (sync): redraw it, unless it is busy here
-    else if (cmd && cmd.reload && S.cur && S.cur.id === cmd.reload && !S.cur.running) openSession(cmd.reload);
+    else if (cmd && cmd.reload && S.cur && S.cur.id === cmd.reload && !S.cur.running) openSession(cmd.reload, true);
   });
 
   document.addEventListener('keydown', (e) => {

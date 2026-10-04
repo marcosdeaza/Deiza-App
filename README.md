@@ -46,6 +46,8 @@ El motor de animación es un solo archivo sin dependencias (`src/renderer/capu.j
 - Navegador propio con dirección, pestañas, sesión persistente, lectura de páginas, capturas, clics, texto, teclas y desplazamiento. Sirve para probar las apps que crea Code y trabajar con las webs en las que inicias sesión.
 - Control del equipo: lista de aplicaciones, capturas de una ventana o pantalla, foco, clics, texto, teclas y desplazamiento. En macOS necesita los permisos de Grabación de pantalla y Accesibilidad; en Linux la entrada usa `xdotool` en X11 y no está disponible en Wayland. Las capturas y las acciones visuales requieren Solid o Liquid.
 - La conversación se ajusta sola a la ventana de contexto real de cada modelo, y el contexto ocupado se ve siempre junto al compositor.
+- Antes de cerrar una tarea, Code comprueba la petición actual, el plan y los resultados de sus herramientas. Si quedan correcciones, verificaciones o un despliegue solicitado, continúa automáticamente. Un bloqueo real o trabajo pendiente se muestran con su estado, sin marcarlo como completado.
+- La sincronización de sesiones conserva las correcciones y los eventos locales que llegan mientras se consulta la nube.
 - Margen de cortesía: si el uso se acaba a mitad de una tarea, el agente la cierra, deja el trabajo estable y escribe `DEIZA_HANDOFF.md` con el contexto, los cambios y lo pendiente (si no llega, la app lo genera). La barra de uso avisa al 85 % y enseña la semana.
 
 ![Traspaso guardado tras agotar el uso](docs/screenshots/code-handoff.png)

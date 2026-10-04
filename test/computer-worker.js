@@ -29,7 +29,13 @@ function harness({ reply, approve, timeout } = {}) {
     responses: [], capturedRequests: requests,
   });
   vm.runInContext(source, context, { filename });
-  vm.runInContext('streamWithRetry = async (auth, params) => { capturedRequests.push(params); return responses.shift(); };', context);
+  vm.runInContext(`streamWithRetry = async (auth, params) => {
+    capturedRequests.push(params);
+    if (params.tools?.length === 1 && params.tools[0].function.name === 'task_completion_review') return {
+      text: '', toolCalls: [{name:'task_completion_review', arguments:JSON.stringify({status:'completed',rationale:'The fixture observation satisfies the request.',next_action:''})}], finishReason:'tool_calls',usage:{}
+    };
+    return responses.shift();
+  };`, context);
   const api = vm.runInContext('({run, requestComputer, computerRequests, ALL_TOOL_SPECS})', context);
   return { events, requests, parentPort, context, api };
 }

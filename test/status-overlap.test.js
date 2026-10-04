@@ -18,11 +18,20 @@ const path = require('node:path');
 app.setPath('userData', ${JSON.stringify(scratch)});
 const doc = { id: 'test-session', title: 'Test Session', folder: '/test-folder', items: [], seq: 0,
   mode: 'build', model: 'deiza-solid-5', effort: 'medium', running: false, updatedAt: Date.now() };
+global.fixtureDoc = doc;
+global.codeGetDelay = 0;
+global.codeGetResponses = [];
 const handle = (name, value) => ipcMain.handle(name, async () => value);
 handle('app:init', { mode: 'code', theme: 'dark', platform: 'win32', version: 'test', home: '/test-folder',
   titlebarHeight: 46, language: 'es', auth: { signedIn: true, user: { name: 'Test User', plan: 'signet' } } });
 handle('code:list', { sessions: [doc], recents: [], lastSession: doc.id });
-handle('code:get', doc);
+ipcMain.handle('code:get', async () => {
+  const queued = global.codeGetResponses.shift();
+  const snapshot = structuredClone(queued ? queued.doc : global.fixtureDoc);
+  const delay = queued ? queued.delay : global.codeGetDelay;
+  if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+  return snapshot;
+});
 handle('code:prefs', { model: doc.model, effort: doc.effort, mode: doc.mode });
 handle('code:usage', { state: 'ok', plan: 'signet', tokens_used: 0, token_limit: 1e6 });
 handle('app:update-state', { state: 'idle' });
@@ -55,13 +64,18 @@ app.on('window-all-closed', () => app.quit());
   fs.writeFileSync(fixturePath, fixtureSource);
   let app;
   try {
+    const env = { ...process.env, NODE_ENV: 'test' };
+    delete env.ELECTRON_RUN_AS_NODE;
+    delete env.DEIZA_TEST_TOKEN;
     app = await electron.launch({
+      executablePath: require('electron'),
       args: [fixturePath],
-      env: { ...process.env, NODE_ENV: 'test' },
+      env,
     });
     const ui = await app.firstWindow();
     await ui.waitForLoadState('domcontentloaded');
-    await ui.waitForSelector('#thread');
+    await ui.waitForFunction(() => typeof S !== 'undefined' && S.cur && capu.el?.isConnected);
+    await ui.evaluate(() => { window.__capuSeq = S.cur.seq || 0; });
 
     // 1. Verify Capu and status line are present
     const hasCapu = await ui.evaluate(() => Boolean(capu.el && capu.el.isConnected));
@@ -130,6 +144,25 @@ app.on('window-all-closed', () => app.quit());
     console.log('Done status check:', doneCheck);
     assert.ok(doneCheck.labelRight <= doneCheck.capuLeft, 'Done status must not overlap Capu');
 
+    // Incomplete and blocked turns are persisted warnings, with no successful completion glow.
+    for (const [language, reason, expected] of [
+      ['es', 'incomplete', 'Queda trabajo pendiente'], ['es', 'blocked', 'Necesita tu ayuda'],
+      ['en', 'incomplete', 'Work remains'], ['en', 'blocked', 'Needs your help'],
+    ]) {
+      const state = await ui.evaluate(({ language, reason }) => {
+        DeizaI18n.setLanguage(language);
+        S.cur.running = true;
+        onCodeEvent({ id: S.cur.id, seq: ++window.__capuSeq, ev: { t: 'turn_end', turnId: `test-${language}-${reason}`, stopReason: reason } });
+        const turn = [...document.querySelectorAll('.turn')].at(-1);
+        return { text: turn.textContent, success: Boolean(turn.querySelector('.ok')), glow: S.afterglow, running: S.cur.running };
+      }, { language, reason });
+      assert.ok(state.text.includes(expected), `${reason} must show its specific state in ${language}`);
+      assert.equal(state.success, false);
+      assert.equal(state.glow, 0);
+      assert.equal(state.running, false);
+    }
+    await ui.evaluate(() => DeizaI18n.setLanguage('es'));
+
     // 4. Test dropping a script, a zip, an image, and a folder into the active chat session
     const dropResult = await ui.evaluate(async () => {
       const mockFiles = [
@@ -156,7 +189,52 @@ app.on('window-all-closed', () => app.quit());
     assert.ok(dropResult.attachments.includes('test.py'), 'test.py should be attached');
     assert.ok(dropResult.attachments.includes('screenshot.png'), 'screenshot.png should be attached');
 
-    console.log('PASS: status-overlap and drag & drop tests passed successfully!');
+    // A cloud reload of the current id must read its new transcript while preserving the draft.
+    await ui.fill('#composer-wrap textarea', 'Mi corrección aún sin enviar');
+    const draftAttachments = await ui.evaluate(() => S.attachments.map(a => a.id));
+    await app.evaluate(() => {
+      global.fixtureDoc.seq = 100;
+      global.fixtureDoc.items = [{ k: 'user', id: 'remote-user', text: 'Actualizado desde otro ordenador' }];
+    });
+    await ui.evaluate(() => openSession(S.cur.id, true));
+    assert.equal(await ui.locator('#composer-wrap textarea').inputValue(), 'Mi corrección aún sin enviar');
+    assert.deepEqual(await ui.evaluate(() => S.attachments.map(a => a.id)), draftAttachments);
+    assert.equal(await ui.evaluate(() => S.cur.items[0].text), 'Actualizado desde otro ordenador');
+    assert.equal(await ui.evaluate(() => S.cur.seq), 100);
+
+    // Events after the IPC snapshot must be replayed; events already inside it must not duplicate.
+    await app.evaluate(() => { global.codeGetDelay = 160; global.fixtureDoc.seq = 200; });
+    const buffered = await ui.evaluate(async () => {
+      const reload = openSession(S.cur.id, true);
+      onCodeEvent({ id: S.cur.id, seq: 199, ev: { t: 'text', delta: 'Already in the snapshot' } });
+      onCodeEvent({ id: S.cur.id, seq: 201, ev: { t: 'text', delta: 'Texto llegado durante la recarga' } });
+      await reload;
+      return { seq: S.cur.seq, texts: S.cur.items.filter(it => it.k === 'text').map(it => it.text) };
+    });
+    assert.equal(buffered.seq, 201);
+    assert.deepEqual(buffered.texts, ['Texto llegado durante la recarga']);
+
+    // Two overlapping reloads of the same id may finish out of order: the newest request wins.
+    await app.evaluate(() => {
+      global.codeGetResponses = [
+        { doc: { ...global.fixtureDoc, seq: 300, title: 'Older delayed copy' }, delay: 160 },
+        { doc: { ...global.fixtureDoc, seq: 400, title: 'Newest copy' }, delay: 20 },
+      ];
+    });
+    await ui.evaluate(async () => { const first = openSession(S.cur.id, true); const second = openSession(S.cur.id, true); await Promise.all([first, second]); });
+    assert.equal(await ui.evaluate(() => S.cur.title), 'Newest copy');
+    assert.equal(await ui.evaluate(() => S.cur.seq), 400);
+    assert.equal(await ui.locator('#composer-wrap textarea').inputValue(), 'Mi corrección aún sin enviar');
+    assert.deepEqual(await ui.evaluate(() => S.attachments.map(a => a.id)), draftAttachments);
+
+    // A failed reload leaves the current draft and its visible attachment chips available.
+    await app.evaluate(() => { global.codeGetResponses = [{ doc: null, delay: 0 }]; });
+    await ui.evaluate(() => openSession(S.cur.id, true));
+    assert.equal(await ui.locator('#composer-wrap textarea').inputValue(), 'Mi corrección aún sin enviar');
+    assert.equal(await ui.locator('#composer-wrap .file-att').count(), draftAttachments.length);
+    assert.equal(await ui.evaluate(() => S.cur.seq), 400);
+
+    console.log('PASS: status clipping, completion states, attachments and session reload races');
   } finally {
     if (app) await app.close();
     fs.rmSync(scratch, { recursive: true, force: true });
