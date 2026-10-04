@@ -598,6 +598,8 @@ function compactContext(messages, { force = false, threshold = COMPACT_THRESHOLD
     messages.splice(anchorEnd, 1);
   }
 
+  sanitizeHistory(messages);
+
   const afterTokens = getActiveContextTokens(messages);
   const freedPct = Math.max(0, Math.round(((beforeTokens - afterTokens) / (beforeTokens || 1)) * 100));
 
@@ -607,6 +609,90 @@ function compactContext(messages, { force = false, threshold = COMPACT_THRESHOLD
     afterTokens,
     freedPct,
   };
+}
+
+/**
+ * Ensures message history conforms to provider constraints (OpenAI, Gemini, Anthropic).
+ * Closes unclosed tool calls with matching responses, ensures every tool sequence
+ * is followed by an assistant message, merges accidental duplicate consecutive turns,
+ * and guarantees conversation begins with user.
+ */
+function sanitizeHistory(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return messages;
+
+  // 1. Repair any dangling tool_calls without matching tool responses
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+      let j = i + 1;
+      const toolMessages = [];
+      while (j < messages.length && messages[j].role === 'tool') {
+        toolMessages.push(messages[j]);
+        j++;
+      }
+      const answered = new Set(toolMessages.map(x => x.tool_call_id));
+      for (const tc of m.tool_calls) {
+        if (!answered.has(tc.id)) {
+          messages.splice(j, 0, { role: 'tool', tool_call_id: tc.id, content: 'Interrumpido antes de ejecutarse.' });
+          j++;
+        }
+      }
+      if (j >= messages.length || messages[j].role !== 'assistant') {
+        messages.splice(j, 0, { role: 'assistant', content: 'Acciones finalizadas o interrumpidas.' });
+      }
+    }
+  }
+
+  // 2. Any orphan tool message not followed by assistant
+  let i = 0;
+  while (i < messages.length - 1) {
+    if (messages[i].role === 'tool' && messages[i + 1].role === 'user') {
+      messages.splice(i + 1, 0, { role: 'assistant', content: 'Acciones previas completadas o interrumpidas.' });
+      i += 2;
+    } else {
+      i++;
+    }
+  }
+  if (messages.length > 0 && messages[messages.length - 1].role === 'tool') {
+    messages.push({ role: 'assistant', content: 'Acciones previas completadas o interrumpidas.' });
+  }
+
+  // 3. Merge consecutive identical roles (except tool messages under assistant)
+  const mergeContent = (c1, c2) => {
+    if (typeof c1 === 'string' && typeof c2 === 'string') {
+      return (c1 ? c1 + '\n\n' : '') + c2;
+    }
+    const toParts = (c) => {
+      if (typeof c === 'string') return [{ type: 'text', text: c }];
+      if (Array.isArray(c)) return [...c];
+      return [{ type: 'text', text: String(c || '') }];
+    };
+    return [...toParts(c1), ...toParts(c2)];
+  };
+
+  i = 0;
+  while (i < messages.length - 1) {
+    const cur = messages[i];
+    const next = messages[i + 1];
+    if (cur.role === next.role && cur.role !== 'tool' && cur.role !== 'system') {
+      if (cur.role === 'assistant' && (Array.isArray(cur.tool_calls) && cur.tool_calls.length > 0)) {
+        i++;
+        continue;
+      }
+      cur.content = mergeContent(cur.content, next.content);
+      messages.splice(i + 1, 1);
+    } else {
+      i++;
+    }
+  }
+
+  // 4. Ensure conversation after system prompt starts with user
+  let startIdx = (messages.length > 0 && messages[0].role === 'system') ? 1 : 0;
+  while (messages.length > startIdx && (messages[startIdx].role === 'assistant' || messages[startIdx].role === 'tool')) {
+    messages.splice(startIdx, 1);
+  }
+
+  return messages;
 }
 
 const TOOL_VERB = {
@@ -851,6 +937,7 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
     else messages[0].content = sys;
   };
   setSystem();
+  sanitizeHistory(messages);
 
   const attachedFiles = (Array.isArray(attachments) ? attachments : []).filter(a => a && a.path).slice(0, 24).map(a => ({
     name: String(a.name || '').slice(0, 300), path: String(a.path).slice(0, 2000), kind: String(a.kind || 'file').slice(0, 40), size: Number(a.size) || 0,
@@ -967,6 +1054,22 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
         console.log(`  ${C.gold}Este endpoint no soporta function calling: usando el formato XML de herramientas.${C.reset}`);
         stats.turns--;
         continue;
+      }
+      if (signal?.aborted || err?.message === 'ABORTED') {
+        stopReason = 'aborted';
+        if (toolMode === 'native') {
+          const lastCalls = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.tool_calls));
+          if (lastCalls) {
+            const answered = new Set(messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
+            for (const call of lastCalls.tool_calls) if (!answered.has(call.id)) messages.push({ role: 'tool', tool_call_id: call.id, content: 'Interrumpido antes de ejecutarse.' });
+          }
+        }
+        sanitizeHistory(messages);
+        if (messages.length && messages[messages.length - 1].role === 'user') {
+          messages.push({ role: 'assistant', content: 'Petición interrumpida por el usuario antes de procesar.' });
+        } else if (messages.length && messages[messages.length - 1].role === 'tool') {
+          messages.push({ role: 'assistant', content: 'Acciones interrumpidas por el usuario.' });
+        }
       }
       if (err && err.message === 'USAGE_LIMIT_EXCEEDED' && (grace || stats.files.size || stats.turns > 1)) {
         try { err.handoff = ensureHandoff({ startedAt, userInput, files: [...stats.files], commands: stats.cmds, messages, mode }); } catch { /* best effort */ }
@@ -1188,11 +1291,19 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
   }
 
   if (stats.turns >= MAX_TURNS) stopReason = 'max_turns';
-  if (stopReason === 'aborted' && toolMode === 'native') {
-    const lastCalls = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.tool_calls));
-    if (lastCalls) {
-      const answered = new Set(messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
-      for (const call of lastCalls.tool_calls) if (!answered.has(call.id)) messages.push({ role: 'tool', tool_call_id: call.id, content: 'Interrumpido antes de ejecutarse.' });
+  if (stopReason === 'aborted') {
+    if (toolMode === 'native') {
+      const lastCalls = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.tool_calls));
+      if (lastCalls) {
+        const answered = new Set(messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
+        for (const call of lastCalls.tool_calls) if (!answered.has(call.id)) messages.push({ role: 'tool', tool_call_id: call.id, content: 'Interrumpido antes de ejecutarse.' });
+      }
+    }
+    sanitizeHistory(messages);
+    if (messages.length && messages[messages.length - 1].role === 'user') {
+      messages.push({ role: 'assistant', content: 'Petición interrumpida por el usuario antes de procesar.' });
+    } else if (messages.length && messages[messages.length - 1].role === 'tool') {
+      messages.push({ role: 'assistant', content: 'Acciones interrumpidas por el usuario.' });
     }
   }
 
@@ -1237,6 +1348,7 @@ module.exports = {
   streamCompletion,
   runAgentTurn,
   compactContext,
+  sanitizeHistory,
   COMPACT_THRESHOLD_TOKENS,
   TOOL_SPECS,
 };

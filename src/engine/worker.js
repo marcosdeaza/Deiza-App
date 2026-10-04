@@ -26,7 +26,7 @@ const { StringDecoder } = require('string_decoder');
 
 const { Tools, TOOL_DEFINITIONS, MAX_TOOL_OUTPUT, isCommandRisky, isCommandCatastrophic, setSearchAuth } = require('./vendor/tools');
 const { buildSystemPrompt } = require('./vendor/prompt');
-const { compactContext, TOOL_SPECS } = require('./vendor/agent');
+const { compactContext, sanitizeHistory, TOOL_SPECS } = require('./vendor/agent');
 const { getActiveContextTokens } = require('./vendor/session');
 const { TASK_COMPLETION_REVIEW_SPEC, createTaskCompletion, parseCompletionReview, completionToolFailed } = require('./vendor/task-completion');
 const { diffText } = require('./diff');
@@ -563,6 +563,7 @@ async function run(msg) {
   const effort = EFFORTS[msg.effort] ? msg.effort : DEFAULT_EFFORT;
   const E = EFFORTS[effort];
   const messages = Array.isArray(msg.messages) ? msg.messages : [];
+  sanitizeHistory(messages);
   const abort = new AbortController();
   const approvals = new Map();
   current = { abort, approvals };
@@ -670,6 +671,7 @@ async function run(msg) {
       }
       trimContext(messages, Math.floor(contextLimit(model) * 2.6));
       pruneCaptures(messages);
+      sanitizeHistory(messages);
 
       post({ t: 'status', text: stats.rounds === 1 ? 'Pensando' : 'Continuando', kind: 'thinking' });
       let lastStreamIdx = -1;
@@ -1055,6 +1057,12 @@ function repairHistory(messages) {
       if (!answered.has(tc.id)) messages.push({ role: 'tool', tool_call_id: tc.id, content: 'Interrumpido antes de ejecutarse.' });
     }
     break;
+  }
+  sanitizeHistory(messages);
+  if (messages.length && messages[messages.length - 1].role === 'user') {
+    messages.push({ role: 'assistant', content: 'Petición interrumpida por el usuario antes de procesar.' });
+  } else if (messages.length && messages[messages.length - 1].role === 'tool') {
+    messages.push({ role: 'assistant', content: 'Acciones interrumpidas por el usuario.' });
   }
 }
 

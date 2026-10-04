@@ -27,7 +27,7 @@ const completionClip = (text, limit) => {
 function completionActionRequest(request) {
   const text = completionNormalize(request).replace(/^[¿¡\s]+/, '').trim();
   if (/^(?:que (?:es|significa|hace)|cual(?:es)?\b|por que\b|como (?:funciona|puedo|se|hacer|usar|configurar)|what (?:is|are|does|do)|why\b|how (?:does|do|can|to)|explica(?:me)?\b|explain\b|describe(?:me)?\b|puedes explicarme\b|can you explain\b)/.test(text)) return false;
-  return /\b(?:implement[a-z]*|arregl[a-z]*|corrig[a-z]*|correg[a-z]*|fix|repair|audit[a-z]*|revis[a-z]*|review|refactor[a-z]*|deploy|desplieg[a-z]*|despleg[a-z]*|public[a-z]*|publish|build|crea[a-z]*|haz|make|test|prueb[a-z]*|comprueb[a-z]*|verific[a-z]*|lee|read|abre|abrir|open|busca[a-z]*|search|instal[a-z]*|install|actualiz[a-z]*|update|elimin[a-z]*|delete|mira[a-z]*|analiz[a-z]*|analyze|cambi[a-z]*|change\b|anad[a-z]*|add\b|segu[a-z]*|sigue\b|continu[a-z]*|continue\b)\b/.test(text);
+  return /\b(?:implement[a-z]*|arregl[a-z]*|corrig[a-z]*|correg[a-z]*|fix|repair|audit[a-z]*|revis[a-z]*|review|refactor[a-z]*|deploy|desplieg[a-z]*|despleg[a-z]*|public[a-z]*|publish|build|crea[a-z]*|haz|make|test|prueb[a-z]*|comprueb[a-z]*|verific[a-z]*|lee|read|abre|abrir|open|busca[a-z]*|search|instal[a-z]*|install|actualiz[a-z]*|update|elimin[a-z]*|delete|mira[a-z]*|analiz[a-z]*|analyze|cambi[a-z]*|change\b|anad[a-z]*|add\b|segu[a-z]*|sigue\b|continu[a-z]*|continue\b|reanud[a-z]*|resume\b|proced[a-z]*|proceed\b|adelante\b|dale\b|termin[a-z]*|finish\b|completa[a-z]*|complete\b|hazlo\b)\b/.test(text);
 }
 
 function completionOnlyPlan(request, mode) {
@@ -99,11 +99,15 @@ function createTaskCompletion({ request, mode = 'build', messages = [], context 
   const isQuestion = /^(?:[¿?]|que (?:es|son|tal)|como\b|cuanto\b|cual\b|por que\b|what\b|why\b|how\b|who\b|when\b|where\b)/i.test(normReq) || /[?]$/.test(currentRequest.trim());
   let isFollowUp = false;
   let followupContext = null;
-  if (!actionRequested && !isQuestion && currentRequest.trim().length <= 40 && priorMessages.length >= 2) {
+  if (!actionRequested && !isQuestion && currentRequest.trim().length <= 60 && priorMessages.length >= 2) {
     const lastAssistant = [...priorMessages].reverse().find(m => m.role === 'assistant');
     const lastUser = [...priorMessages].reverse().find(m => m.role === 'user');
     const assistantAsked = lastAssistant && (/[?¿]/.test(typeof lastAssistant.content === 'string' ? lastAssistant.content : '') || /\b(?:prefieres|quieres|eliges|which|what)\b/i.test(typeof lastAssistant.content === 'string' ? lastAssistant.content : ''));
-    if (assistantAsked && lastUser && completionActionRequest(typeof lastUser.content === 'string' ? lastUser.content : '')) {
+    const previousWasInterrupted = lastAssistant && /interrumpid|aborted|cancelad/i.test(typeof lastAssistant.content === 'string' ? lastAssistant.content : '');
+    const previousHadAction = lastUser && completionActionRequest(typeof lastUser.content === 'string' ? lastUser.content : '');
+    const isContinuationWord = /\b(?:continua|continúe|sigue|prosigue|reanuda|adelante|dale|hazlo|termina|completa|procede|continue|resume|proceed|go on)\b/i.test(normReq);
+
+    if ((assistantAsked || previousWasInterrupted || isContinuationWord) && (previousHadAction || isContinuationWord)) {
       actionRequested = true;
       isFollowUp = true;
       followupContext = priorMessages.map(m => ({

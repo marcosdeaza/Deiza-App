@@ -221,6 +221,45 @@ test('abort as tool calls arrive pairs their history without executing them', as
   pairedHistory(h);
 });
 
+test('second instance continuation after interruption seamlessly resumes complex workflow', async () => {
+  const h = harness({
+    normal: [
+      ({ abort }) => {
+        abort();
+        return answer('', [
+          call('call_1', 'read_file', { path: 'server.js' }),
+          call('call_2', 'write_file', { path: 'server.js', content: 'const ok = true;' })
+        ]);
+      },
+      answer('', [call('call_3', 'write_file', { path: 'server.js', content: 'const ok = true;' })]),
+      answer('Servidor actualizado correctamente.')
+    ],
+    reviews: [
+      report()
+    ]
+  });
+
+  const res1 = await h.run('Actualiza el archivo server.js');
+  assert.equal(res1.stopReason, 'aborted');
+  const hist1 = history(h);
+  assert.equal(hist1[hist1.length - 1].role, 'assistant');
+  assert(/interrumpid/i.test(hist1[hist1.length - 1].content));
+
+  const res2 = await h.run('continúa', { messages: hist1 });
+  assert.equal(res2.stopReason, 'done');
+  const hist2 = history(h);
+  assert.equal(hist2[hist2.length - 1].role, 'assistant');
+
+  for (let i = 0; i < hist2.length - 1; i++) {
+    if (hist2[i].role === 'tool') {
+      assert.notEqual(hist2[i + 1].role, 'user', `Violation at index ${i}: tool followed directly by user`);
+    }
+    if (hist2[i].role === 'user') {
+      assert.notEqual(hist2[i + 1].role, 'user', `Violation at index ${i}: consecutive user messages`);
+    }
+  }
+});
+
 test('abort as a completion review arrives cannot report done', async () => {
   const h = harness({ normal: [answer('Resultado completo.')], reviews: [({ abort }) => { abort(); return report(); }] });
   assert.equal((await h.run('Corrige el icono.')).stopReason, 'aborted');
