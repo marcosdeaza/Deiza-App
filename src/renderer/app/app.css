@@ -230,6 +230,8 @@ body.sidebar-closed #sidebar { margin-left: calc(-1 * var(--sidebar)); }
 .meter .track { height: 4px; border-radius: 4px; background: hsl(var(--fg) / .1); overflow: hidden; }
 .meter .fill { height: 100%; background: hsl(var(--ochre)); border-radius: 4px; transition: width .4s; }
 .meter .fill.hot { background: hsl(var(--primary)); }
+.meter .row.week { font-size: 10.5px; color: hsl(var(--faint)); gap: 8px; }
+.meter .row.week span:last-child { text-align: right; white-space: nowrap; }
 
 /* ── thread ───────────────────────────────────────────────────────────────── */
 #thread { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; background: hsl(var(--bg)); }
@@ -262,6 +264,19 @@ body.sidebar-closed #sidebar { margin-left: calc(-1 * var(--sidebar)); }
   padding: 9px 13px; white-space: pre-wrap; word-wrap: break-word; font-size: 13.5px; line-height: 1.5;
 }
 .msg-user .imgs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.msg-actions { display: flex; gap: 2px; margin-top: -4px; opacity: 0; transition: opacity .15s; }
+.msg-user:hover .msg-actions, .msg-user:focus-within .msg-actions { opacity: 1; }
+.ua-btn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: hsl(var(--muted-fg)); }
+.ua-btn:hover { color: hsl(var(--fg)); background: hsl(var(--muted)); }
+.ua-btn.done { color: hsl(var(--ochre)); }
+.ua-btn .i { width: 14px; height: 14px; }
+#transcript.busy .msg-actions .idle-only, #transcript.readonly .msg-actions .idle-only { display: none; }
+.msg-user .msg-actions[hidden], .msg-user .bubble[hidden] { display: none; }
+.msg-user.editing { align-self: stretch; max-width: 100%; align-items: stretch; }
+.msg-edit { width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 10px 12px; border-radius: 14px; background: hsl(var(--card)); border: 1px solid hsl(var(--primary) / .45); }
+.msg-edit textarea { width: 100%; resize: none; border: 0; outline: none; background: transparent; color: hsl(var(--fg)); font: inherit; font-size: 13.5px; line-height: 1.5; }
+.msg-edit-row { display: flex; align-items: center; gap: 8px; }
+.msg-edit-row .hint { flex: 1; min-width: 0; font-size: 11.5px; color: hsl(var(--faint)); }
 .msg-user .imgs img { height: 84px; border-radius: 10px; border: 1px solid hsl(var(--border) / .6); object-fit: cover; }
 .msg-atts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
 .file-att { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; padding: 7px 9px; border: 1px solid hsl(var(--border) / .65); border-radius: 9px; background: hsl(var(--muted) / .5); font-size: 12px; }

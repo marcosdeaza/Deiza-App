@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('deiza', {
     create: inv('code:create'),
     pickFolder: inv('code:pick-folder'),
     send: inv('code:send'),
+    rewind: inv('code:rewind'),
     attach: inv('code:attach'),
     abort: inv('code:abort'),
     approve: inv('code:approve'),

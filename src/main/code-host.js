@@ -295,7 +295,23 @@ async function enabledSkills() {
 
 function invalidateSkills() { skillsCache = { at: 0, token: '', list: [] }; }
 
-async function send({ id, text, images, attachments = [], mode, model, effort }) {
+/** A pasted image already saved for this session, read back as a data URL (edit/retry resend it). */
+function savedImageUrl(id, file) {
+  const base = path.join(dir, 'attachments', id);
+  const full = path.resolve(String(file || ''));
+  const r = path.relative(base, full);
+  const m = /\.(png|jpe?g|gif|webp)$/i.exec(full);
+  if (!m || r.startsWith('..') || path.isAbsolute(r)) return null;
+  try {
+    const buf = fs.readFileSync(full);
+    if (buf.length > 8 * 1024 * 1024) return null;
+    const type = m[1].toLowerCase() === 'jpg' ? 'jpeg' : m[1].toLowerCase();
+    return `data:image/${type};base64,${buf.toString('base64')}`;
+  } catch { return null; }
+}
+
+// `reuse` is only passed from inside the main process (rewind): images already on disk.
+async function send({ id, text, images, attachments = [], mode, model, effort }, reuse = {}) {
   const doc = loadDoc(id);
   if (!doc) return { error: 'not_found' };
   if (running.has(id)) return { error: 'busy' };
@@ -303,6 +319,10 @@ async function send({ id, text, images, attachments = [], mode, model, effort })
   if (!fs.existsSync(doc.folder)) return { error: 'folder' };
   const input = String(text || '').trim();
   const att = saveAttachments(id, images);
+  for (const file of (Array.isArray(reuse.imagePaths) ? reuse.imagePaths : []).slice(0, 6)) {
+    const url = savedImageUrl(id, file);
+    if (url) { att.paths.push(file); att.dataUrls.push(url); }
+  }
   let selected;
   try {
     selected = attachmentStore.resolve(attachments, id);
@@ -320,7 +340,9 @@ async function send({ id, text, images, attachments = [], mode, model, effort })
     doc.title = first.length > 64 ? `${first.slice(0, 61).trimEnd()}…` : first;
   }
   const turnId = `turn_${uid()}`;
-  emit(id, { t: 'user', text: input, images: att.paths, attachments: selected.map(({ id, name, path, kind, size }) => ({ id, name, path, kind, size })), turnId });
+  const hist = doc.messages.length;
+  // The id travels in the event so the window and the saved session share it (edit/retry find it by id).
+  emit(id, { t: 'user', id: `u_${uid()}`, text: input, images: att.paths, attachments: selected.map(({ id, name, path, kind, size }) => ({ id, name, path, kind, size })), turnId, hist });
   const note = doc.pendingNote;
   doc.pendingNote = '';
   running.set(id, { turnId, startedAt: now() });
@@ -350,6 +372,69 @@ async function send({ id, text, images, attachments = [], mode, model, effort })
     emit(id, { t: 'turn_end', turnId, stopReason: 'error', elapsedMs: 0, stats: {}, revertible: false });
   }
   return { ok: true, turnId };
+}
+
+// ── edit / retry of a user message ────────────────────────────────────────────
+
+const CHANGING_TOOLS = new Set(['write_file', 'append_file', 'edit_file', 'delete_path', 'move_path', 'run_command', 'download_file']);
+const REWIND_NOTE = '[Nota del sistema: el usuario ha vuelto a un mensaje anterior de esta conversación para editarlo o reintentarlo. Las respuestas que venían después se han descartado del historial, pero los cambios que hicieron en archivos y los comandos que ejecutaron siguen aplicados. Comprueba el estado real del proyecto antes de dar nada por hecho.]';
+
+function userText(m) {
+  if (!m || m.role !== 'user') return null;
+  if (typeof m.content === 'string') return m.content;
+  if (Array.isArray(m.content)) return m.content.filter(p => p && p.type === 'text').map(p => p.text || '').join('\n');
+  return '';
+}
+
+/** Length the model history must be cut to so the user message at items[idx] can be sent again; -1 if it is gone. */
+function historyCut(doc, idx) {
+  const item = doc.items[idx];
+  const msgs = doc.messages;
+  const text = String(item.text || '').trim();
+  const matches = (m) => { const t = userText(m); return t !== null && (!text || t.includes(text)); };
+  if (Number.isInteger(item.hist) && item.hist >= 0 && item.hist <= msgs.length) {
+    // An empty history gets the system prompt first, so the first message sits at 1.
+    if (matches(msgs[item.hist === 0 ? 1 : item.hist])) return item.hist;
+  }
+  if (!text) return -1;
+  // Older sessions (no `hist`) or a compacted history: the same request counted from the end,
+  // since compaction always folds the oldest turns first.
+  let later = 0;
+  for (let i = idx + 1; i < doc.items.length; i++) if (doc.items[i].k === 'user' && String(doc.items[i].text || '').trim() === text) later++;
+  for (let i = msgs.length - 1; i >= 1; i--) {
+    if (!matches(msgs[i])) continue;
+    if (later === 0) return i;
+    later--;
+  }
+  return -1;
+}
+
+/** Edit (new text) or retry (same text) a user message: it and everything after it are discarded and it is sent again. */
+async function rewind({ id, itemId, turnId, text, mode, model, effort } = {}) {
+  const doc = loadDoc(id);
+  if (!doc) return { error: 'not_found' };
+  if (running.has(id)) return { error: 'busy' };
+  if (!auth.getToken()) return { error: 'auth' };
+  if (!fs.existsSync(doc.folder)) return { error: 'folder' };
+  // Older versions gave live messages a different id in the window: the turn id is shared too.
+  const idx = doc.items.findIndex(it => it.k === 'user' && (it.id === itemId || (turnId && it.turnId === turnId)));
+  if (idx < 0) return { error: 'not_found' };
+  const item = doc.items[idx];
+  const cut = historyCut(doc, idx);
+  if (cut < 0) return { error: 'compacted' };
+  const input = typeof text === 'string' ? text.trim() : String(item.text || '');
+  const attachments = (item.attachments || []).filter(a => a && a.id).map(a => ({ id: a.id }));
+  const attached = new Set((item.attachments || []).map(a => a && a.path));
+  const imagePaths = (item.images || []).filter(p => !attached.has(p));
+  if (!input && !imagePaths.length && !attachments.length) return { error: 'empty' };
+  try { attachmentStore.resolve(attachments, id); } catch (err) { return { error: 'attachments', message: err.message }; }
+
+  const changed = doc.items.slice(idx).some(it => it.k === 'tool' && CHANGING_TOOLS.has(it.name) && it.status !== 'aborted');
+  doc.messages = doc.messages.slice(0, cut);
+  emit(id, { t: 'truncate', itemId: item.id, turnId: item.turnId });
+  if (changed) doc.pendingNote = [doc.pendingNote, REWIND_NOTE].filter(Boolean).join('\n\n');
+  saveNow(id);
+  return send({ id, text: input, images: [], attachments, mode, model, effort }, { imagePaths });
 }
 
 function abort(id) {
@@ -547,6 +632,7 @@ function setupIpc(c) {
     return r.filePaths[0];
   });
   handle('code:send', (payload) => send(payload || {}));
+  handle('code:rewind', (payload) => rewind(payload || {}));
   handle('code:attach', (payload = {}) => {
     if (payload.id && !loadDoc(payload.id)) return { attachments: [], errors: ['La sesión ya no existe.'] };
     return attachmentStore.attach(payload);

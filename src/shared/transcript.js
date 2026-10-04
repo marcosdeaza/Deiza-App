@@ -3,7 +3,7 @@
  * (which draws it). Both apply the same worker events, so what is saved is what was seen.
  *
  * Items:
- *   { k:'user', id, text, images, attachments, at }
+ *   { k:'user', id, text, images, attachments, at, turnId, hist }   hist = history length before it (for edit/retry)
  *   { k:'think', id, text, open, startedAt, ms }   model reasoning (collapsed in the UI)
  *   { k:'text', id, text, open }
  *   { k:'tool', id, name, target, path, status, summary, detail, ms, output }
@@ -53,6 +53,7 @@
       case 'user': {
         closeText(items);
         const it = { k: 'user', id: ev.id || uid('u'), text: ev.text || '', images: ev.images || [], attachments: ev.attachments || [], at: ev.at || Date.now(), turnId: ev.turnId };
+        if (Number.isInteger(ev.hist)) it.hist = ev.hist;
         items.push(it);
         return it;
       }
@@ -156,6 +157,12 @@
         const it = { k: 'handoff', id: uid('h'), path: ev.path || '', by: ev.by || 'agent', content: ev.content || '' };
         items.push(it);
         return it;
+      }
+      case 'truncate': {
+        // Edit or retry of a user message: it and everything after it leave the transcript.
+        const at = items.findIndex(x => x.id === ev.itemId || (ev.turnId && x.k === 'user' && x.turnId === ev.turnId));
+        if (at >= 0) items.splice(at);
+        return null;
       }
       case 'reverted': {
         for (const it of items) if (it.k === 'turn' && it.id === ev.turnId) { it.reverted = true; it.revertible = false; return it; }

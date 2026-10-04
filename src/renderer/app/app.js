@@ -53,6 +53,8 @@ const ICONS = {
   trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
   upload: '<path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   pin: '<path d="M12 17v5M5 17h14l-2-6V4h1V2H6v2h1v7l-2 6z"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/>',
+  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>',
 };
 const icon = (name, cls = 'i') => {
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -69,7 +71,22 @@ function fmtDuration(ms) {
   if (s < 60) return `${s} s`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m} min${s % 60 ? ` ${s % 60} s` : ''}`;
-  return `${Math.floor(m / 60)} h ${m % 60} min`;
+  if (m < 24 * 60) return `${Math.floor(m / 60)} h ${m % 60} min`;
+  return `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`;
+}
+/** Weekly reset of the plan (fixed 7-day cycle): { in: '2 d 5 h', when: 'domingo, 5 de octubre, 14:00' } or null. */
+function weeklyReset(us, long = true) {
+  if (!us) return null;
+  const at = us.weekly_reset_at ? Date.parse(us.weekly_reset_at.endsWith('Z') ? us.weekly_reset_at : `${us.weekly_reset_at}Z`) : NaN;
+  const secs = Number.isFinite(at) ? (at - Date.now()) / 1000 : Number(us.weekly_reset_in_seconds);
+  if (!(secs > 0)) return null;
+  let when = '';
+  if (Number.isFinite(at)) {
+    try {
+      when = new Intl.DateTimeFormat(locale(), long ? { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(at));
+    } catch { when = ''; }
+  }
+  return { in: fmtDuration(secs * 1000).replace(/ \d+ s$/, ''), when };
 }
 const locale = () => (DeizaI18n.uiLanguage() === 'es' ? 'es-ES' : 'en-US');
 const num = (n) => Number(n || 0).toLocaleString(locale());
@@ -496,10 +513,13 @@ function renderAccount() {
     const reset = us.reset_in_seconds ? T('se renueva en {t}', { t: fmtDuration(us.reset_in_seconds * 1000) }) : '';
     const state = us.state || (pct >= 100 ? 'exhausted' : pct >= 85 ? 'warning' : 'ok');
     const label = state === 'grace' ? T('Cortesía') : state === 'exhausted' ? T('Agotado') : `${pct} %`;
-    foot.append(h('div', { class: `meter ${state}`, title: T('Ventana de 5 horas: {p} %. Semana: {w} %. El uso cuenta lo que lees y escribes, incluido el contexto y el razonamiento.', { p: pct, w: wk }) },
+    const week = weeklyReset(us, false);
+    const weekLong = weeklyReset(us, true);
+    foot.append(h('div', { class: `meter ${state}`, title: T('Ventana de 5 horas: {p} %. Semana: {w} %. El uso cuenta lo que lees y escribes, incluido el contexto y el razonamiento.', { p: pct, w: wk }) + (weekLong && weekLong.when ? ` ${T('La semana se reinicia el {when}.', { when: weekLong.when })}` : '') },
       h('div', { class: 'row' }, h('span', { text: us.limit_scope === 'weekly' ? T('Uso · semana') : T('Uso · ventana de 5 h') }), h('span', { text: label })),
       h('div', { class: 'track' }, h('div', { class: `fill${pct >= 85 ? ' hot' : ''}`, style: { width: `${pct}%` } })),
-      h('div', { class: 'row' }, h('span', { text: reset }), wk ? h('span', { text: T('semana {w} %', { w: wk }) }) : null)));
+      h('div', { class: 'row' }, h('span', { text: reset }), h('span', { text: T('semana {w} %', { w: wk }) })),
+      week ? h('div', { class: 'row week' }, h('span', { text: T('Semana: se reinicia en {t}', { t: week.in }) }), week.when ? h('span', { text: week.when }) : null) : null));
   } else if (us && us.error === 'plan') {
     foot.append(h('button', { class: 'btn ghost small', onclick: () => deiza.chatGo('plans') }, 'Deiza Code: ver planes'));
   }
@@ -703,6 +723,7 @@ function renderThread() {
   head.append(...[chip, branch, h('div', { class: 'head-spacer' }), panelBtn].filter(Boolean));
   if (S.cur.folderMissing) tr.append(h('div', { class: 'errcard' }, h('div', { class: 'h', text: 'La carpeta ya no existe' }), h('p', { text: `${S.cur.folder} se movió o se borró. Puedes leer el historial, pero no continuar esta sesión.` })));
   for (const it of S.cur.items) tr.append(renderItemEl(it));
+  syncThreadState();
   const banner = renderQuotaBanner();
   if (banner) wrap.append(banner);
   wrap.append(renderComposer(false));
@@ -801,6 +822,7 @@ function renderItem(it) {
       if (it.attachments && it.attachments.length) box.append(h('div', { class: 'msg-atts' }, it.attachments.map(a =>
         h('span', { class: 'file-att', title: a.name }, icon(a.kind === 'folder' ? 'folder' : a.kind === 'image' ? 'image' : 'file'), h('span', { text: a.name })))));
       if (it.text) box.append(h('div', { class: 'bubble', text: it.text }));
+      box.append(userActions(it, box));
       return box;
     }
     case 'text': {
@@ -818,6 +840,102 @@ function renderItem(it) {
     case 'turn': return renderTurn(it);
     default: return h('div');
   }
+}
+
+// ── actions on the user's messages: copy, edit, retry ─────────────────────────
+
+function flashDone(btn) {
+  btn.classList.add('done');
+  btn.replaceChildren(icon('check'));
+  setTimeout(() => { btn.classList.remove('done'); btn.replaceChildren(icon('copy')); }, 1400);
+}
+
+function userActions(it, box) {
+  const row = h('div', { class: 'msg-actions' });
+  if (it.text) {
+    const copy = h('button', { class: 'ua-btn', title: T('Copiar'), 'aria-label': T('Copiar'), onclick: () => { navigator.clipboard.writeText(it.text); flashDone(copy); } }, icon('copy'));
+    row.append(copy);
+  }
+  row.append(
+    h('button', { class: 'ua-btn idle-only', title: T('Editar'), 'aria-label': T('Editar'), onclick: () => editUserMessage(it, box) }, icon('edit')),
+    h('button', { class: 'ua-btn idle-only', title: T('Reintentar'), 'aria-label': T('Reintentar'), onclick: () => rewindTo(it, it.text) }, icon('refresh')));
+  return row;
+}
+
+function editUserMessage(it, box) {
+  if (!S.cur || S.cur.running) { toast(T('Espera a que termine la petición')); return; }
+  if (box.classList.contains('editing')) return;
+  const bubble = box.querySelector('.bubble');
+  const actions = box.querySelector('.msg-actions');
+  const ta = h('textarea', { rows: '1', spellcheck: 'true', 'aria-label': T('Editar mensaje') });
+  ta.value = it.text || '';
+  const fit = () => { ta.style.height = 'auto'; ta.style.height = `${Math.min(ta.scrollHeight, 340)}px`; };
+  let editor;
+  const close = () => {
+    box.classList.remove('editing');
+    editor.remove();
+    if (bubble) bubble.hidden = false;
+    if (actions) actions.hidden = false;
+  };
+  const submit = async () => {
+    const v = ta.value.trim();
+    if (!v && !(it.images || []).length && !(it.attachments || []).length) { ta.focus(); return; }
+    if (await rewindTo(it, v)) close();
+  };
+  ta.addEventListener('input', fit);
+  ta.addEventListener('keydown', (e) => {
+    // Kept here: the confirmation dialog opened by this Enter listens on document and would take it as "yes"
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); e.stopPropagation(); submit(); }
+  });
+  editor = h('div', { class: 'msg-edit' }, ta,
+    h('div', { class: 'msg-edit-row' },
+      h('span', { class: 'hint', text: T('Lo que vino después de este mensaje se descarta. Los archivos no se tocan.') }),
+      h('button', { class: 'btn ghost small', onclick: close }, T('Cancelar')),
+      h('button', { class: 'btn primary small', onclick: submit }, T('Enviar'))));
+  box.classList.add('editing');
+  if (bubble) { bubble.hidden = true; bubble.after(editor); } else box.insertBefore(editor, actions);
+  if (actions) actions.hidden = true;
+  requestAnimationFrame(() => { fit(); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); });
+}
+
+/** Sends `it` again (retry) or with new text (edit), discarding what came after it. */
+async function rewindTo(it, text) {
+  if (!S.cur) return false;
+  if (S.cur.running) { toast(T('Espera a que termine la petición')); return false; }
+  if (S.cur.folderMissing) { toast(T('La carpeta del proyecto ya no existe')); return false; }
+  // S.cur.items can be reloaded from disk (new objects): look the message up by id
+  const at = S.cur.items.findIndex(x => x.id === it.id || (it.turnId && x.turnId === it.turnId && x.k === 'user'));
+  const later = at < 0 ? 0 : S.cur.items.slice(at + 1).filter(x => x.k === 'user').length;
+  if (later > 0) {
+    const ok = await confirmModal({
+      title: T('Volver a este mensaje'),
+      message: later === 1
+        ? T('Se descartará el mensaje que enviaste después y su respuesta. Los cambios en archivos y los comandos ya ejecutados no se deshacen.')
+        : T('Se descartarán los {n} mensajes que enviaste después y sus respuestas. Los cambios en archivos y los comandos ya ejecutados no se deshacen.', { n: later }),
+      confirmText: T('Continuar'),
+    });
+    if (!ok) return false;
+  }
+  capuReturnHome();
+  const r = await deiza.code.rewind({ id: S.cur.id, itemId: it.id, turnId: it.turnId, text, mode: S.cur.mode, model: S.cur.model, effort: S.cur.effort });
+  if (r && (r.error || r.ok === false)) {
+    toast((r.error === 'attachments' && r.message) || {
+      busy: T('Espera a que termine la petición'), auth: T('Inicia sesión en Deiza para usar Code'), folder: T('La carpeta del proyecto ya no existe'),
+      compacted: T('Ese mensaje ya se resumió al compactar el contexto: no se puede reintentar desde aquí.'), empty: T('Escribe algo primero'),
+    }[r.error] || T('No se pudo enviar'));
+    return false;
+  }
+  return true;
+}
+
+/** Text of the answer that ends with the turn item `it` (everything the agent wrote since the last user message). */
+function turnAnswer(it) {
+  const items = (S.cur && S.cur.items) || [];
+  const at = items.findIndex(x => x.id === it.id);
+  const parts = [];
+  for (let i = at - 1; i >= 0 && items[i].k !== 'user'; i--) if (items[i].k === 'text' && items[i].text.trim()) parts.unshift(items[i].text.trim());
+  return parts.join('\n\n');
 }
 
 // reasoning ("Razonando…" while it streams, then a collapsed "Razonó durante 12 s")
@@ -1110,6 +1228,12 @@ function renderTurn(it) {
         else { S.panel.tree.clear(); renderPanel(); }
       },
     }, 'Revertir cambios'));
+  }
+  if (turnAnswer(it)) {
+    parts.push(h('button', {
+      class: 'link-btn', title: T('Copia el texto de esta respuesta (sin las herramientas)'),
+      onclick: () => { navigator.clipboard.writeText(turnAnswer(it)); toast(T('Respuesta copiada')); },
+    }, T('Copiar respuesta')));
   }
   return h('div', { class: 'turn' }, h('div', { class: 't-in' }, parts));
 }
@@ -2277,6 +2401,15 @@ async function startDictation() {
 function refreshComposerState() {
   const box = $('#composer-wrap .composer');
   if (box && box._refresh) box._refresh();
+  syncThreadState();
+}
+
+/** Edit/retry only while the session is idle and its folder still exists. */
+function syncThreadState() {
+  const tr = $('#transcript');
+  if (!tr) return;
+  tr.classList.toggle('busy', Boolean(S.cur && S.cur.running));
+  tr.classList.toggle('readonly', Boolean(S.cur && S.cur.folderMissing));
 }
 
 function stopRun() {
@@ -2529,7 +2662,7 @@ function onCodeEvent({ id, seq, ev }) {
   S.cur.seq = seq;
   if (ev.t === 'status') {
     S.status = { ...ev, since: Date.now() };
-    if (!S.cur.running) S.cur.running = true;
+    if (!S.cur.running) { S.cur.running = true; syncThreadState(); }
     renderStatus();
     return;
   }
@@ -2542,6 +2675,11 @@ function onCodeEvent({ id, seq, ev }) {
     }
   }
   const changed = DeizaTranscript.apply(S.cur.items, ev);
+  if (ev.t === 'truncate') {
+    renderThread();
+    scrollToBottom(true);
+    return;
+  }
   if (ev.t === 'user') {
     S.cur.running = true;
     upsert(changed);

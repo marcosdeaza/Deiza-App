@@ -1,5 +1,5 @@
 /* Deiza desktop — Ajustes: cuenta, general, Code, skills y acerca de. Uses the helpers of app.js. */
-/* global deiza, h, icon, T, S, toast, MODELS, EFFORTS, effortSlider, DeizaI18n, DeizaRose, fmtDuration, num, renderAccount, repaintModelPills, capuMotion, capuApplyMotion, openComputerBrowser */
+/* global deiza, h, icon, T, S, toast, MODELS, EFFORTS, effortSlider, DeizaI18n, DeizaRose, fmtDuration, weeklyReset, num, renderAccount, repaintModelPills, capuMotion, capuApplyMotion, openComputerBrowser */
 'use strict';
 
 const ST = { open: false, section: 'account', data: null, account: null, skills: null, limits: null, computer: null };
@@ -102,8 +102,22 @@ function stAccount(page) {
     card.append(h('div', { class: 'meter' }, h('div', { class: 'row' }, h('span', { text: T('Uso de Code · ventana de 5 h') }), h('span', { text: `${pct} %` })),
       h('div', { class: 'track' }, h('div', { class: `fill${pct > 85 ? ' hot' : ''}`, style: { width: `${pct}%` } })),
       us.reset_in_seconds ? h('div', { class: 'row' }, h('span', { text: T('Se renueva en {t}', { t: fmtDuration(us.reset_in_seconds * 1000) }) })) : null));
+    if (us.weekly_limit) {
+      const wk = Math.min(100, Math.round(us.weekly_pct || 0));
+      const week = weeklyReset(us, true);
+      card.append(h('div', { class: 'meter' }, h('div', { class: 'row' }, h('span', { text: T('Uso semanal · {u} de {l}', { u: compactUnits(us.weekly_used), l: compactUnits(us.weekly_limit) }) }), h('span', { text: `${wk} %` })),
+        h('div', { class: 'track' }, h('div', { class: `fill${us.weekly_exhausted || wk > 85 ? ' hot' : ''}`, style: { width: `${wk}%` } })),
+        week ? h('div', { class: 'row' }, h('span', { text: week.when ? T('Se reinicia el {when} · dentro de {t}', { when: week.when, t: week.in }) : T('Se reinicia en {t}', { t: week.in }) })) : null));
+    }
   }
   page.append(card, h('div', { class: 'st-actions' }, h('button', { class: 'btn ghost danger', onclick: () => { closeSettings(); deiza.auth.logout(); } }, T('Cerrar sesión'))));
+}
+
+/** 14031840 -> "14M", 1500000 -> "1,5M", 300000 -> "300k" */
+function compactUnits(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return `${(n / 1e6).toLocaleString(DeizaI18n.uiLanguage() === 'es' ? 'es-ES' : 'en-US', { maximumFractionDigits: 1 })}M`;
+  return `${Math.round(n / 1e3)}k`;
 }
 
 function stGeneral(page, d) {
