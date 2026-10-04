@@ -144,6 +144,8 @@ function stCode(page, d) {
   page.append(h('div', { class: 'st-sub', text: T('Modelo') }), models);
   page.append(h('div', { class: 'st-block' }, effortSlider(d.effort, async (v) => { d.effort = v; S.effort = v; repaintModelPills(); await deiza.settings.set('defaultEffort', v); })));
   page.append(stRow(T('Modo'), T('Build hace todo solo, Copilot te pide permiso en cada cambio y Plan solo lee.'), stSeg([['build', 'Build'], ['copilot', 'Copilot'], ['plan', 'Plan']], d.mode, async (v) => { await deiza.settings.set('defaultMode', v); d.mode = v; S.defaultMode = v; localStorage.setItem('deiza:code:mode', v); })));
+  page.append(stRow(T('Sincronizar entre dispositivos'), T('Tus sesiones de Code (conversación e historial) se guardan en tu cuenta y aparecen en tus otros ordenadores. Los archivos del proyecto no se suben.'),
+    stToggle(d.syncSessions !== false, async (v) => { d.syncSessions = v; await deiza.settings.set('syncSessions', v); if (v) { await deiza.code.syncNow(); refreshSessions(); } })));
   page.append(stRow(T('Capu'), T('La mascota de Deiza Code te acompaña mientras trabaja: teclea, se toma un café, le cuenta el bug al pato de goma y florece al terminar.'), stToggle(capuEnabled(), (v) => { localStorage.setItem('deiza:capu', v ? '1' : '0'); renderStatus(); })));
   const motion = h('select', { class: 'field st-select', 'aria-label': T('Animaciones de Capu') });
   for (const [value, label] of [['full', 'Completa'], ['system', 'Según el sistema'], ['reduced', 'Reducida']]) {

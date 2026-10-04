@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { app, ipcMain, dialog, utilityProcess, Notification, Menu, shell, net, BrowserWindow } = require('electron');
 const Transcript = require('../shared/transcript');
 const { T } = require('../shared/i18n');
@@ -77,8 +78,11 @@ function saveNow(id) {
   if (t) { clearTimeout(t); saveTimers.delete(id); }
   const doc = docs.get(id);
   if (!doc) return;
+  doc.localRev = (doc.localRev || 0) + 1;
+  doc.editedAt = Date.now();
   const { seq, ...rest } = doc;
   try { writeJson(sessionFile(id), rest); } catch (err) { console.error('code save:', err.message); }
+  schedulePush(id, running.has(id) ? 45000 : 3000);
 }
 
 function scheduleSave(id) {
@@ -117,6 +121,7 @@ function meta(doc) {
     pinned: Boolean(doc.pinned),
     createdAt: doc.createdAt, updatedAt: doc.updatedAt, running: running.has(doc.id),
     folderMissing: !fs.existsSync(doc.folder),
+    remoteDevice: doc.remoteDevice || '', remoteFolder: doc.remoteFolder || '',
   };
 }
 
@@ -484,7 +489,10 @@ function revert(id, turnId) {
   return { ok: true, restored, skipped };
 }
 
-function deleteSession(id) {
+function deleteSession(id, { fromRemote = false } = {}) {
+  if (!fromRemote && syncEnabled()) syncFetch('DELETE', `/api/code/sessions/${id}?kind=desktop`).catch(err => console.error('sync delete:', err.message));
+  const pt = syncTimers.get(id);
+  if (pt) { clearTimeout(pt.timer); syncTimers.delete(id); }
   computerHost.cancelSession(id);
   computerHost.close(id);
   attachmentStore?.removeSession(id);
@@ -498,6 +506,168 @@ function deleteSession(id) {
   }
   if (prefs.get('lastSession') === id) prefs.set('lastSession', '');
   broadcastList();
+}
+
+// ── sync between devices (desktop code sync v1) ───────────────────────────────
+// Each session (transcript + model history, never the project files) is kept in the account, so
+// it shows up on the user's other computers. Last writer wins by updatedAt; a deletion leaves a
+// tombstone that the other devices follow. The project folder is per device: a session that comes
+// from another computer asks for the folder here before it can continue.
+
+const SYNC_PULL_MS = 90 * 1000;
+const SYNC_MAX_BYTES = 5.5 * 1024 * 1024;
+const syncTimers = new Map();   // id -> { timer, due }
+let syncPulling = null;
+let syncLastPull = 0;
+let syncQueue = Promise.resolve();
+
+const syncEnabled = () => Boolean(prefs && prefs.get('syncSessions') !== false && auth && auth.getToken());
+
+async function syncFetch(method, pathname, body) {
+  const res = await net.fetch(`${ORIGIN}${pathname}`, {
+    method,
+    headers: { 'X-Auth-Token': auth.getToken(), 'X-Deiza-Client': 'desktop', 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json().catch(() => ({}));
+}
+
+function syncMeta(doc) {
+  return {
+    title: doc.title, folder: doc.folder, folderName: path.basename(doc.folder || '') || doc.folder,
+    mode: doc.mode, model: doc.model, effort: doc.effort, pinned: Boolean(doc.pinned),
+    // updatedAt here is the edit stamp that decides which copy wins; the session keeps its own updatedAt for sorting
+    createdAt: doc.createdAt, updatedAt: doc.editedAt || doc.updatedAt, device: os.hostname(), platform: process.platform,
+    turns: (doc.items || []).filter(it => it.k === 'turn').length,
+  };
+}
+
+/** What goes up: no pasted images inside the model history, and lighter tool output if it is huge. */
+function syncPayload(doc) {
+  const { seq, context, localRev, syncedRev, ...rest } = doc;
+  const messages = (doc.messages || []).map(m => (Array.isArray(m.content)
+    ? { ...m, content: m.content.map(p => (p && p.type === 'image_url' && /^data:/.test((p.image_url && p.image_url.url) || '') ? { type: 'text', text: '[imagen adjunta en otro equipo]' } : p)) }
+    : m));
+  let session = { ...rest, messages };
+  if (Buffer.byteLength(JSON.stringify(session)) > SYNC_MAX_BYTES) {
+    session = { ...session, items: session.items.map(it => (it.k === 'tool' ? { ...it, output: String(it.output || '').slice(-2000) } : it)) };
+  }
+  if (Buffer.byteLength(JSON.stringify(session)) > SYNC_MAX_BYTES) session = { ...session, messages: [], messagesDropped: true };
+  return session;
+}
+
+function schedulePush(id, delay) {
+  if (!syncEnabled()) return;
+  const due = Date.now() + delay;
+  const cur = syncTimers.get(id);
+  if (cur && cur.due <= due) return;   // a sooner push is already on its way
+  if (cur) clearTimeout(cur.timer);
+  const timer = setTimeout(() => {
+    syncTimers.delete(id);
+    syncQueue = syncQueue.then(() => pushSession(id)).catch(err => console.error('sync push:', err.message));
+  }, delay);
+  syncTimers.set(id, { timer, due });
+}
+
+async function pushSession(id) {
+  const doc = loadDoc(id);
+  if (!doc || !syncEnabled() || (doc.syncedRev || 0) >= (doc.localRev || 0)) return;
+  const rev = doc.localRev || 0;
+  await syncFetch('PUT', `/api/code/sessions/${id}?kind=desktop`, { session: syncPayload(doc), meta: syncMeta(doc) });
+  doc.syncedRev = rev;
+  const { seq, ...rest } = doc;
+  try { writeJson(sessionFile(id), rest); } catch { /* next save writes it */ }
+}
+
+/** A Code transcript without model history (too big to sync): rebuild a plain conversation from it. */
+function messagesFromItems(items) {
+  const out = [];
+  let answer = [];
+  const flush = () => { if (answer.length) { out.push({ role: 'assistant', content: answer.join('\n\n') }); answer = []; } };
+  for (const it of items) {
+    if (it.k === 'user') { flush(); out.push({ role: 'user', content: it.text || '' }); }
+    else if (it.k === 'text' && it.text) answer.push(it.text);
+  }
+  flush();
+  return out.length ? [{ role: 'system', content: '' }, ...out] : [];
+}
+
+function importRemote(id, remote, meta) {
+  const local = loadDoc(id);
+  const here = (f) => Boolean(f) && fs.existsSync(f);
+  const folder = here(local && local.folder) ? local.folder : here(remote.folder) ? remote.folder : (local && local.folder) || remote.folder || '';
+  const items = (remote.items || []).map(it => (it.k === 'turn' ? { ...it, revertible: false } : it));
+  const messages = remote.messagesDropped ? messagesFromItems(items) : (Array.isArray(remote.messages) ? remote.messages : []);
+  const rev = ((local && local.localRev) || 0) + 1;
+  const doc = {
+    ...remote, id, folder, items, messages, seq: 0, localRev: rev, syncedRev: rev,
+    updatedAt: Number(remote.updatedAt || meta.updatedAt || Date.now()),
+    editedAt: Number(meta.updatedAt || remote.editedAt || Date.now()),
+    remoteFolder: remote.folder || '', remoteDevice: meta.device || '',
+  };
+  delete doc.messagesDropped;
+  docs.set(id, doc);
+  const { seq, ...rest } = doc;
+  writeJson(sessionFile(id), rest);
+}
+
+async function pullSessions(force) {
+  if (!syncEnabled()) return;
+  if (syncPulling) return syncPulling;
+  if (!force && Date.now() - syncLastPull < 20000) return;
+  syncLastPull = Date.now();
+  syncPulling = (async () => {
+    const { sessions = [] } = await syncFetch('GET', '/api/code/sessions?kind=desktop');
+    const seen = new Set();
+    const reloaded = [];
+    let changed = false;
+    for (const m of sessions) {
+      if (!m || !validId(m.id)) continue;
+      seen.add(m.id);
+      const local = loadDoc(m.id);
+      if (m.deleted) {
+        // deleted on another device: follow it, unless this copy has changes that never went up
+        if (local && !running.has(m.id) && (local.syncedRev || 0) >= (local.localRev || 0)) { deleteSession(m.id, { fromRemote: true }); changed = true; }
+        continue;
+      }
+      if (local && (running.has(m.id) || Number(m.updatedAt || 0) <= Number(local.editedAt || local.updatedAt || 0))) {
+        if ((local.localRev || 0) > (local.syncedRev || 0)) schedulePush(m.id, 1500);
+        continue;
+      }
+      const r = await syncFetch('GET', `/api/code/sessions/${m.id}?kind=desktop`);
+      if (!r || !r.session || !Array.isArray(r.session.items)) continue;
+      importRemote(m.id, r.session, m);
+      reloaded.push(m.id);
+      changed = true;
+    }
+    // sessions of this computer that the account has never seen (made before sync, or offline)
+    let n = 0;
+    for (const meta of listSessions()) {
+      if (seen.has(meta.id)) continue;
+      const d = loadDoc(meta.id);
+      if (!d) continue;
+      if ((d.syncedRev || 0) >= (d.localRev || 0)) d.localRev = (d.syncedRev || 0) + 1;
+      schedulePush(meta.id, 2500 + (n++) * 1500);
+    }
+    if (changed) broadcastList();
+    for (const id of reloaded) ctx?.send('code:command', { reload: id });
+  })().catch(err => console.error('sync pull:', err.message)).finally(() => { syncPulling = null; });
+  return syncPulling;
+}
+
+/** A session from another computer: point it at this computer's copy of the project. */
+async function relinkFolder(id) {
+  const doc = loadDoc(id);
+  if (!doc) return { error: 'not_found' };
+  const win = ctx?.getWindow();
+  const r = await dialog.showOpenDialog(win, { title: T('Carpeta del proyecto en este equipo'), properties: ['openDirectory', 'createDirectory'] });
+  if (r.canceled || !r.filePaths || !r.filePaths[0]) return { canceled: true };
+  doc.folder = r.filePaths[0];
+  addRecent(doc.folder);
+  saveNow(id);
+  broadcastList();
+  return { ok: true, meta: meta(doc) };
 }
 
 // ── files for the side panel ──────────────────────────────────────────────────
@@ -650,7 +820,7 @@ function setupIpc(c) {
     if (doc) saveNow(id);
     return { model: pickModel(doc ? doc.model : model), effort: pickEffort(doc ? doc.effort : effort) };
   });
-  handle('code:prefs', () => ({ model: pickModel(), effort: pickEffort(), mode: prefs.get('defaultMode') || 'build', notify: prefs.get('notify') !== false }));
+  handle('code:prefs', () => ({ model: pickModel(), effort: pickEffort(), mode: prefs.get('defaultMode') || 'build', notify: prefs.get('notify') !== false, syncSessions: prefs.get('syncSessions') !== false }));
   handle('code:transcribe', (payload) => transcribe(payload || {}));
   handle('code:set-mode', ({ id, mode } = {}) => {
     if (!MODES.includes(mode)) return false;
@@ -659,6 +829,8 @@ function setupIpc(c) {
     if (doc) { doc.mode = mode; saveNow(id); }
     return true;
   });
+  handle('code:relink', ({ id } = {}) => relinkFolder(id));
+  handle('code:sync-now', () => pullSessions(true).then(() => ({ ok: true }), (err) => ({ error: err.message })));
   handle('code:rename', ({ id, title } = {}) => {
     const doc = loadDoc(id);
     if (!doc) return false;
@@ -761,6 +933,13 @@ function init(opts) {
       if (!running.has(id) && now() - w.lastUsed > IDLE_KILL_MS) { try { w.proc.kill(); } catch { /* gone */ } workers.delete(id); }
     }
   }, 5 * 60 * 1000).unref();
+  startSync();
+}
+
+function startSync() {
+  setTimeout(() => pullSessions(true), 5000);
+  setInterval(() => pullSessions(false), SYNC_PULL_MS).unref();
+  app.on('browser-window-focus', () => pullSessions(false));
 }
 
 function shutdown() {
@@ -771,6 +950,7 @@ function shutdown() {
 
 function setPref(key, value) {
   if (key === 'notify') prefs.set('notify', Boolean(value));
+  else if (key === 'syncSessions') { prefs.set('syncSessions', Boolean(value)); if (value) pullSessions(true); }
   else if (key === 'defaultMode' && MODES.includes(value)) prefs.set('defaultMode', value);
   else if (key === 'defaultModel' && MODELS.includes(value)) prefs.set('defaultModel', value);
   else if (key === 'defaultEffort' && EFFORTS.includes(value)) prefs.set('defaultEffort', value);

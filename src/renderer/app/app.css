@@ -982,3 +982,6 @@ button.ctx:hover { color: hsl(var(--fg)); background: hsl(var(--muted) / .6); }
 .capu-stand.flip svg { transform: scaleX(-1); }
 #composer-wrap { position: relative; }
 #thread.has-status #transcript { padding-bottom: 72px; }
+
+/* session from another computer / moved folder */
+.errcard.relink .row { display: flex; gap: 8px; margin-top: 10px; }

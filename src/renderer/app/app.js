@@ -721,7 +721,20 @@ function renderThread() {
     (() => { const i = icon('file'); i.innerHTML = '<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6M18 10.2c0 4-6 3-10.6 6.6"/>'; return i; })(), S.cur.branch) : null;
   const panelBtn = h('button', { class: 'icon-btn panel-toggle', 'aria-pressed': String(S.panel.open), title: 'Archivos, cambios y vista previa (⌘\\ / Ctrl+\\)', onclick: () => togglePanel(S.panel.tab || 'files') }, icon('panel'));
   head.append(...[chip, branch, h('div', { class: 'head-spacer' }), panelBtn].filter(Boolean));
-  if (S.cur.folderMissing) tr.append(h('div', { class: 'errcard' }, h('div', { class: 'h', text: 'La carpeta ya no existe' }), h('p', { text: `${S.cur.folder} se movió o se borró. Puedes leer el historial, pero no continuar esta sesión.` })));
+  if (S.cur.folderMissing) {
+    // a session from another computer, or a folder that moved: point it at the project folder here
+    const relink = h('button', { class: 'btn primary small', onclick: async () => {
+      const r = await deiza.code.relink({ id: S.cur.id });
+      if (r && r.ok) { await refreshSessions(); openSession(S.cur.id); }
+    } }, icon('folder'), T('Elegir carpeta…'));
+    const foreign = S.cur.remoteDevice && S.cur.remoteDevice !== '';
+    tr.append(h('div', { class: 'errcard relink' },
+      h('div', { class: 'h', text: foreign ? T('Sesión de otro equipo') : T('La carpeta ya no existe') }),
+      h('p', { text: foreign
+        ? T('Viene de {device} ({folder}). Puedes leer el historial; para seguir trabajando, elige la carpeta de este proyecto en este equipo.', { device: S.cur.remoteDevice, folder: S.cur.remoteFolder || S.cur.folder })
+        : T('{folder} se movió o se borró. Puedes leer el historial; para seguir, elige dónde está ahora la carpeta.', { folder: S.cur.folder }) }),
+      h('div', { class: 'row' }, relink)));
+  }
   for (const it of S.cur.items) tr.append(renderItemEl(it));
   syncThreadState();
   const banner = renderQuotaBanner();
@@ -2794,6 +2807,8 @@ async function boot() {
     if (cmd === 'new-session') startNew(S.cur ? S.cur.folder : null);
     else if (cmd === 'open-folder') deiza.code.pickFolder().then(f => f && startNew(f));
     else if (cmd && cmd.open) openSession(cmd.open);
+    // the open session changed on another device (sync): redraw it, unless it is busy here
+    else if (cmd && cmd.reload && S.cur && S.cur.id === cmd.reload && !S.cur.running) openSession(cmd.reload);
   });
 
   document.addEventListener('keydown', (e) => {
