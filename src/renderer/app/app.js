@@ -978,6 +978,9 @@ function fileUrl(p) {
 
 // markdown
 marked.setOptions({ gfm: true, breaks: false });
+// Only fenced blocks (```) are code. The engines often indent the prose they write between tool
+// calls, and Markdown would turn any line with 4+ leading spaces into a "código" block.
+marked.use({ tokenizer: { code() { return undefined; } } });
 const mdTimers = new WeakMap();
 function updateProse(el, it, immediate) {
   const draw = () => {
