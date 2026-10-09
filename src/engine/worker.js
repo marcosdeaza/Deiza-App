@@ -38,20 +38,23 @@ const post = (ev) => { try { port.postMessage(ev); } catch { /* app went away */
 const MAX_FAILED_ROUNDS = 4;
 // Real context windows of the Code engines (tokens). The vendored CLI modules assume 1M, which made
 // long sessions fail on every request; compaction starts at 70 % of the real window.
-const CONTEXT_LIMITS = { 'deiza-omniscient': 262144, 'deiza-solid-5': 1048576, 'deiza-gas-4.5': 131072 };
+const { liquid55Live } = require('./vendor/config');
+const CONTEXT_LIMITS = { get 'deiza-omniscient'() { return liquid55Live() ? 1048576 : 262144; }, 'deiza-liquid-5.1': 262144, 'deiza-liquid-5.5': 1048576, 'deiza-solid-5': 1048576, 'deiza-gas-4.5': 131072 };
 const contextLimit = (model) => CONTEXT_LIMITS[model] || 262144;
 const MAX_TOKENS = 32768;
 
 // Models the Code picker offers. All of them call tools; `effort` = honours reasoning_effort,
 // `vision` = accepts images.
 const MODELS = {
+  'deiza-liquid-5.1': { effort: true, vision: true },
+  'deiza-liquid-5.5': { effort: true, vision: true },
   'deiza-omniscient': { effort: true, vision: true },   // shown as Liquid 5.1
   'deiza-solid-5': { effort: true, vision: true },
   'deiza-gas-4.5': { effort: false, vision: false },
 };
 const DEFAULT_MODEL = 'deiza-solid-5';
 // Sessions saved by earlier versions keep working under the new names.
-const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid-5.1': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
+const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
 const normModel = (m) => (MODELS[m] ? m : MODEL_ALIASES[m] || DEFAULT_MODEL);
 
 // Effort levels: how hard the model reasons (when it can) and how far the agent is allowed to go.

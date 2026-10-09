@@ -4,6 +4,9 @@
   else root.DeizaI18nEN = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   return {
+    'Razonamiento adaptativo, contexto de 1M y visión.': 'Adaptive reasoning, 1M context and vision.',
+    'Generación anterior, contexto de 256K y visión.': 'Previous generation, 256K context and vision.',
+    'Gas no ve imágenes: cambia a Liquid o Solid 5 si importan.': 'Gas cannot see images: switch to Liquid or Solid 5 if they matter.',
     'Ajustes': 'Settings', 'Ajustes…': 'Settings…', 'Cuenta': 'Account', 'General': 'General', 'Acerca de': 'About',
     'Cerrar sesión': 'Sign out', 'Nueva sesión': 'New session', 'Abrir carpeta…': 'Open folder…', 'Modelo': 'Model',
     'Esfuerzo': 'Effort', 'Bajo': 'Low', 'Medio': 'Medium', 'Alto': 'High', 'Omnisciente': 'Max', 'Idioma': 'Language',

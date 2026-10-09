@@ -22,17 +22,21 @@ const DEIZA_DIR = path.join(os.homedir(), '.deiza');
 const CONFIG_FILE = path.join(DEIZA_DIR, 'config.json');
 const SESSIONS_DIR = path.join(DEIZA_DIR, 'sessions');
 
-const VERSION = '2.5.2';
+const VERSION = '2.5.3';
 const DEFAULT_DEIZA_API = 'https://deiza.org';
 const DEFAULT_MODEL = 'deiza-solid';   // 1M of context: the default for coding since 2.4.0
 
-const NATIVE_MODELS = ['deiza-liquid', 'deiza-solid', 'deiza-gas'];
+const LIQUID55_AT = '2026-10-12T00:00:00+02:00';
+const liquid55Live = (now = Date.now()) => now >= Date.parse(LIQUID55_AT);
+const NATIVE_MODELS = ['deiza-liquid', 'deiza-solid', 'deiza-gas', 'deiza-liquid-5.1', 'deiza-liquid-5.5'];
 
 const MODEL_ALIASES = {
   'liquid': 'deiza-liquid',
   'liquid-5': 'deiza-liquid',
   'liquid5': 'deiza-liquid',
-  'liquid-5.1': 'deiza-liquid',
+  'liquid-5.1': 'deiza-liquid-5.1',
+  'liquid-5.5': 'deiza-liquid-5.5',
+  'deiza-liquid-5': 'deiza-liquid',
   '5': 'deiza-liquid',
   '1': 'deiza-liquid',
 
@@ -67,10 +71,10 @@ const MODEL_INFO = {
   'deiza-liquid': {
     id: 'deiza-liquid',
     shortName: 'liquid',
-    name: 'Deiza Liquid 5.1',
-    badge: 'Liquid 5.1 · 256K tokens',
-    tag: 'LIQUID 5.1',
-    desc: 'Motor principal autónomo. Ventana de 256K tokens, alta velocidad y diffs limpios.',
+    get name() { return 'Deiza Liquid ' + (liquid55Live() ? '5.5' : '5.1'); },
+    get badge() { return liquid55Live() ? 'Liquid 5.5 · 1M tokens' : 'Liquid 5.1 · 256K tokens'; },
+    get tag() { return liquid55Live() ? 'LIQUID 5.5' : 'LIQUID 5.1'; },
+    get desc() { return liquid55Live() ? 'Equilibrado y agéntico. Ventana de 1M tokens, razonamiento adaptativo y visión.' : 'Motor principal autónomo. Ventana de 256K tokens, alta velocidad y diffs limpios.'; },
     tier: 'Equilibrado',
     speed: 'Rápido',
     default: false,
@@ -100,10 +104,16 @@ const MODEL_INFO = {
 
 };
 
+for (const version of ['5.1', '5.5']) {
+  MODEL_INFO['deiza-liquid-' + version] = { ...MODEL_INFO['deiza-liquid'], id: 'deiza-liquid-' + version, shortName: 'liquid-' + version, name: 'Deiza Liquid ' + version, badge: 'Liquid ' + version + ' · ' + (version === '5.5' ? '1M' : '256K') + ' tokens', tag: 'LIQUID ' + version, desc: version === '5.5' ? 'Liquid 5.5, disponible desde el 12 de octubre: 1M de contexto, razonamiento adaptativo y visión.' : 'Generación anterior. Contexto de 256K tokens y visión.' };
+}
+
 // Real context windows (tokens) of the native engines. Compaction starts at 70 % of the window of
 // the model in use; custom endpoints get a conservative 128K.
 const CONTEXT_LIMITS = {
-  'deiza-liquid': 262144,
+  get 'deiza-liquid'() { return liquid55Live() ? 1048576 : 262144; },
+  'deiza-liquid-5.1': 262144,
+  'deiza-liquid-5.5': 1048576,
   'deiza-solid': 1048576,
   'deiza-gas': 131072,
 };
@@ -212,6 +222,8 @@ function saveConfig(cfg) {
 }
 
 module.exports = {
+  LIQUID55_AT,
+  liquid55Live,
   CONTEXT_LIMITS,
   contextLimit,
   VERSION,

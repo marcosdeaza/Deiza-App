@@ -58,7 +58,9 @@ function modeBadge(mode) {
 }
 
 const MODEL_BADGES = {
-  'deiza-liquid': '\x1b[1;38;5;81m[LIQUID 5.1]\x1b[0m',
+  get 'deiza-liquid'() { return `\x1b[1;38;5;81m[${MODEL_INFO['deiza-liquid'].tag}]\x1b[0m`; },
+  'deiza-liquid-5.1': '\x1b[1;38;5;81m[LIQUID 5.1]\x1b[0m',
+  'deiza-liquid-5.5': '\x1b[1;38;5;81m[LIQUID 5.5]\x1b[0m',
   'deiza-solid': '\x1b[1m\x1b[38;2;184;74;85m[SOLID 5]\x1b[0m',
   'deiza-gas': '\x1b[1;38;5;114m[GAS 4.5]\x1b[0m',
 };
@@ -75,6 +77,7 @@ function renderModelSelector(currentModel = 'deiza-liquid') {
     { num: '2', key: 'deiza-solid',    short: 'solid',    info: MODEL_INFO['deiza-solid'],    color: C.granateBright },
     { num: '3', key: 'deiza-gas',      short: 'gas',      info: MODEL_INFO['deiza-gas'],      color: C.green },
   ];
+  if (MODEL_INFO['deiza-liquid'].tag === 'LIQUID 5.5' || currentModel === 'deiza-liquid-5.1') list.push({num: '5.1', key: 'deiza-liquid-5.1', short: 'liquid-5.1', info: MODEL_INFO['deiza-liquid-5.1'], color: C.cyan});
   for (const item of list) {
     const isAct = item.key === currentModel || item.short === currentModel;
     const mark = isAct ? `${C.green}●${C.reset}` : `${C.darkGray}○${C.reset}`;
@@ -402,8 +405,8 @@ const COMMANDS_REGISTRY = [
   { cmd: '/logout', args: '', desc: 'Cerrar sesión en esta máquina', cat: 'Cuenta' },
   { cmd: '/update', args: '', desc: 'Comprobar y actualizar Deiza Code a la última versión', cat: 'Sistema' },
   { cmd: '/upgrade', args: '', desc: 'Alias de /update (comprobar y actualizar a la última versión)', cat: 'Sistema' },
-  { cmd: '/model', args: '[1-3|nombre]', desc: 'Cambiar de modelo (Liquid 5.1, Solid 5, Gas 4.5)', cat: 'Configuración' },
-  { cmd: '/liquid', args: '', desc: 'Activar modelo Deiza Liquid 5.1 (Equilibrado · 256K tokens)', cat: 'Modelos' },
+  { cmd: '/model', args: '[1-3|nombre]', get desc() { return `Cambiar de modelo (${MODEL_INFO['deiza-liquid'].name}, Solid 5, Gas 4.5)`; }, cat: 'Configuración' },
+  { cmd: '/liquid', args: '', get desc() { return `Activar ${MODEL_INFO['deiza-liquid'].name} (${MODEL_INFO['deiza-liquid'].badge})`; }, cat: 'Modelos' },
   { cmd: '/solid', args: '', desc: 'Activar modelo Deiza Solid 5 (El más capaz · metódico, código e investigación)', cat: 'Modelos' },
   { cmd: '/gas', args: '', desc: 'Activar modelo Deiza Gas 4.5 (El más rápido y ligero)', cat: 'Modelos' },
   { cmd: '/endpoint', args: '[url|deiza]', desc: 'Usar otro motor OpenAI-compatible (Ollama, vLLM...) o volver a Deiza', cat: 'Configuración' },
@@ -470,7 +473,7 @@ function renderWhoami({ email, name, plan, apiKey, apiBase, isCustom, usage, cur
   }
   // 2.5.1: the real model (Solid 5 is the default since 2.4) instead of the old "Deiza Omniscient" label
   const m = String(model || '').toLowerCase();
-  const modelName = m.includes('solid') ? 'Deiza Solid 5' : m.includes('gas') ? 'Deiza Gas 4.5' : (m.includes('liquid') || m.includes('omniscient')) ? 'Deiza Liquid 5.1' : (model || 'Deiza Solid 5');
+  const modelName = m.includes('solid') ? 'Deiza Solid 5' : m.includes('gas') ? 'Deiza Gas 4.5' : (m.includes('liquid') || m.includes('omniscient')) ? (MODEL_INFO[m] || MODEL_INFO['deiza-liquid']).name : (model || 'Deiza Solid 5');
   content += `${C.white}Modelo:${C.reset}             ${isCustom ? `${C.granateBright}${model || '-'}${C.reset}` : `${C.granateBright}${modelName}${C.reset} ${C.gray}[cámbialo con /model · infraestructura dedicada de Deiza]${C.reset}`}\n`;
 
   return box('Perfil de Usuario — Deiza Code', content, C.granate);

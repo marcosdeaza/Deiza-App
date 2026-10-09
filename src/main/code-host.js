@@ -34,8 +34,8 @@ const LANG_BY_EXT = {
 };
 
 // Solid 5 first: the default for Code (1M of context)
-const MODELS = ['deiza-solid-5', 'deiza-omniscient', 'deiza-gas-4.5'];
-const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid-5.1': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
+const MODELS = ['deiza-solid-5', 'deiza-omniscient', 'deiza-gas-4.5', 'deiza-liquid-5.1', 'deiza-liquid-5.5'];
+const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
 const EFFORTS = ['low', 'medium', 'high', 'ultra', 'max'];
 const MODES = ['build', 'copilot', 'plan'];
 const SKILLS_TTL_MS = 60 * 1000;

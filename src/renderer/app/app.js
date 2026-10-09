@@ -164,9 +164,13 @@ const S = {
 const itemEls = new Map();
 
 // Code models and effort levels (ids match the engine)
+const LIQUID55_AT = '2026-10-12T00:00:00+02:00';
+const liquid55Live = (now = Date.now()) => now >= Date.parse(LIQUID55_AT);
 const MODELS = [
   { id: 'deiza-solid-5', name: 'Solid 5', tag: 'El más capaz · 1M de contexto', desc: 'Metódico: planifica, verifica y resuelve lo difícil. Contexto de 1M, ve imágenes.', badge: 'Recomendado' },
-  { id: 'deiza-omniscient', name: 'Liquid 5.1', tag: 'Equilibrado y agéntico', desc: 'Rápido y equilibrado, contexto de 256K. Ve imágenes.', badge: null },
+  { id: 'deiza-omniscient', get name() { return liquid55Live() ? 'Liquid 5.5' : 'Liquid 5.1'; }, tag: 'Equilibrado y agéntico', get desc() { return liquid55Live() ? 'Razonamiento adaptativo, contexto de 1M y visión.' : 'Rápido y equilibrado, contexto de 256K. Ve imágenes.'; }, badge: null },
+  { id: 'deiza-liquid-5.1', name: 'Liquid 5.1', desc: 'Generación anterior, contexto de 256K y visión.', badge: null, get hidden() { return !liquid55Live(); } },
+  { id: 'deiza-liquid-5.5', name: 'Liquid 5.5', desc: 'Razonamiento adaptativo, contexto de 1M y visión.', badge: null, hidden: true },
   { id: 'deiza-gas-4.5', name: 'Gas 4.5', tag: 'Instantáneo', desc: 'El más rápido, para cambios pequeños.', badge: null },
 ];
 const EFFORTS = [
@@ -176,7 +180,7 @@ const EFFORTS = [
   { id: 'ultra',  name: 'Ultra',       desc: 'Planifica a fondo, prueba y revisa su propio diff antes de terminar.' },
   { id: 'max',    name: 'Omnisciente', desc: 'Máximo razonamiento autónomo: razona, ejecuta, evalúa en bucle. Más lento y gasta más.' },
 ];
-const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid-5.1': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
+const MODEL_ALIASES = { 'deiza-solid-4.6': 'deiza-solid-5', 'deiza-solid-4.5': 'deiza-solid-5', 'deiza-gas-4.1': 'deiza-gas-4.5', 'deiza-liquid-5': 'deiza-omniscient', 'deiza-liquid': 'deiza-omniscient', 'deiza-vainilla': 'deiza-gas-4.5' };
 const modelInfo = (id) => MODELS.find(m => m.id === (MODEL_ALIASES[id] || id)) || MODELS[0];
 const effortInfo = (id) => EFFORTS.find(e => e.id === id) || EFFORTS[1];
 const effortLevel = (id) => Math.max(1, EFFORTS.findIndex(e => e.id === id) + 1);
@@ -1673,7 +1677,7 @@ function renderComposer(hero) {
       }
       if (!S.cur || S.cur.id !== id) return;
       const imageCount = images.length + attachments.filter(a => a.kind === 'image').length;
-      if (imageCount && modelInfo(S.cur.model).id === 'deiza-gas-4.5') toast(T('Gas no ve imágenes: cambia a Liquid 5.1 o Solid 5 si importan.'), 4200);
+      if (imageCount && modelInfo(S.cur.model).id === 'deiza-gas-4.5') toast(T('Gas no ve imágenes: cambia a Liquid o Solid 5 si importan.'), 4200);
       capuReturnHome();
       const result = await deiza.code.send({ id, text, images, attachments: attachments.map(a => ({ id: a.id })), mode: S.cur.mode, model: S.cur.model, effort: S.cur.effort });
       if (result && (result.error || result.ok === false)) {
@@ -2138,7 +2142,7 @@ function toggleModelMenu(btn) {
   const c = currentChoice();
   const el = h('div', { class: 'model-menu', role: 'dialog', 'aria-label': T('Modelo y esfuerzo') });
   const list = h('div', { class: 'mm-list', role: 'menu' });
-  for (const m of MODELS) {
+  for (const m of MODELS.filter(m => !m.hidden || m.id === c.model)) {
     const on = m.id === c.model;
     list.append(h('button', { class: `mm-row${on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(on), onclick: () => { chooseModel({ model: m.id }); closeModelMenu(); } },
       h('span', { class: 'mm-main' }, h('span', { class: 'mm-title', text: m.name }), h('span', { class: 'mm-sub', text: T(m.desc) })),
@@ -2893,3 +2897,12 @@ window.__openForTest = (rel) => openFile(rel);
 boot().catch((err) => {
   document.body.append(h('pre', { style: { position: 'fixed', bottom: '10px', left: '10px', color: 'tomato', zIndex: 2000 }, text: String(err && err.stack || err) }));
 });
+
+// Refresh an open composer at the scheduled boundary, including after sleep.
+let lastLiquid55 = liquid55Live();
+function refreshLiquidLaunch() {
+  const live = liquid55Live();
+  if (live !== lastLiquid55) { lastLiquid55 = live; closeModelMenu(); repaintModelPills(); }
+}
+setInterval(refreshLiquidLaunch, 60000);
+window.addEventListener('focus', refreshLiquidLaunch);
