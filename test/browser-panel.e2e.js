@@ -139,9 +139,9 @@ app.whenReady().then(async () => {
   const reopened = BrowserWindow.getAllWindows()[0];
   reopened.setBounds({ width: 640, height: 420 });
   await new Promise(r => setTimeout(r, 200));
-  ui = await reopened.webContents.executeJavaScript(`({model:document.getElementById('side-model').value,effort:document.getElementById('side-effort').value,optionsBottom:document.getElementById('side-options').getBoundingClientRect().bottom,height:innerHeight,bodyWidth:document.body.scrollWidth,width:innerWidth})`);
+  ui = await reopened.webContents.executeJavaScript(`({model:document.getElementById('side-model').value,effort:document.getElementById('side-effort').value,optionsBottom:document.getElementById('side-options').getBoundingClientRect().bottom,panelWidth:document.getElementById('side').getBoundingClientRect().width,height:innerHeight,bodyWidth:document.body.scrollWidth,width:innerWidth})`);
   check('reabrir conserva modelo y esfuerzo', ui.model === 'liquid51' && ui.effort === 'max');
-  check('el panel cabe en la ventana mínima sin ocultar los controles', ui.optionsBottom <= ui.height && ui.bodyWidth <= ui.width, JSON.stringify(ui));
+  check('el panel cabe en la ventana mínima sin ocultar los controles', ui.optionsBottom <= ui.height && ui.bodyWidth <= ui.width && ui.panelWidth === Math.min(310, Math.round(ui.width * .42)), JSON.stringify(ui));
   fs.writeFileSync(path.join(OUT, 'panel-small.png'), (await reopened.webContents.capturePage()).toPNG());
   require('../src/shared/i18n').setLanguage('en');
   b.say('work_7', { kind: 'status', text: 'Ready' });

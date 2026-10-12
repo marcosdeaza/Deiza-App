@@ -278,7 +278,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     const shell = { owner, win, tabs: [], active: null, toolbarId: win.webContents.id, activity: '', activityAt: 0,
       feed: [], panel: false, panelClosed: false, options: { ...(workOptions.get(owner) || { model: 'liquid', effort: 'medium' }) } };
     shells.set(owner, shell);
-    const relayout = () => { layoutShell(shell); setImmediate(() => layoutShell(shell)); };
+    const relayout = () => { layoutShell(shell); publishShell(shell); setImmediate(() => layoutShell(shell)); };
     for (const ev of ['resize', 'resized', 'maximize', 'unmaximize', 'restore', 'show']) win.on(ev, relayout);
     for (const ev of ['enter-full-screen', 'leave-full-screen']) {
       win.on(ev, () => { wantFullscreen = ev === 'enter-full-screen'; relayout(); publishShell(shell); });
