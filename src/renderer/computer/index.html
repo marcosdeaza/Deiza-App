@@ -23,6 +23,7 @@
       <span class="agent-text" id="agent-text">Deiza Code</span>
       <button class="agent-stop" id="agent-stop" hidden><svg viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.6"/></svg><span id="agent-stop-text">Detener</span></button>
     </div>
+    <button id="panel-toggle" class="tool" data-tip="panel"><svg viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M10 2.5v11"/></svg></button>
     <button id="fullscreen" class="tool" data-tip="fullscreen"><svg viewBox="0 0 16 16" id="fs-icon"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
     <div class="caption"></div>
   </header>
@@ -35,6 +36,20 @@
       <ul class="keys" id="keys"></ul>
     </div>
   </main>
+  <aside class="side" id="side" hidden>
+    <header class="side-head">
+      <span class="side-mark"><svg viewBox="0 0 16 16"><path d="M3 1.8v11.1l2.9-2.7 2 4.4 2.1-.9-1.9-4.3h4.1z"/></svg></span>
+      <span class="side-title">Deiza</span>
+      <span class="side-state" id="side-state"></span>
+      <button class="side-close" id="side-close" data-tip="panelClose"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </header>
+    <ol class="feed" id="feed"></ol>
+    <div class="side-status" id="side-status" hidden><span class="pulse"></span><span id="side-status-text"></span></div>
+    <form class="side-input" id="side-form" autocomplete="off">
+      <textarea id="side-text" rows="1" spellcheck="true"></textarea>
+      <button id="side-send" type="submit" data-tip="send"><svg viewBox="0 0 16 16"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></button>
+    </form>
+  </aside>
   <div class="error" id="error" hidden></div>
   <script src="toolbar.js"></script>
 </body>

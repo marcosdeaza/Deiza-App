@@ -21,7 +21,9 @@ const BG = '#1c1917';
 const ICON = path.join(__dirname, '../renderer/icon.png');
 const TOOLBAR_FILE = path.join(__dirname, '../renderer/computer/index.html');
 const TOOLBAR_URL = pathToFileURL(TOOLBAR_FILE).href;
-const TOOLBAR_ACTIONS = ['state', 'navigate', 'back', 'forward', 'reload', 'stop', 'tab', 'close-tab', 'new-tab', 'fullscreen', 'stop-agent'];
+const TOOLBAR_ACTIONS = ['state', 'navigate', 'back', 'forward', 'reload', 'stop', 'tab', 'close-tab', 'new-tab', 'fullscreen', 'stop-agent', 'panel', 'send'];
+const PANEL_W = 340;           // Deiza's side panel: what it is doing, and a box to write to it
+const FEED_MAX = 60;
 const toolbarRoutes = new Map();
 let toolbarIPCInstalled = false;
 function installToolbarIPC() {
@@ -68,7 +70,7 @@ function addressToURL(text) {
   return `https://${v}`;
 }
 
-function createBrowserController({ getOwner = () => null, onStopAgent = () => {}, navigationTimeoutMs = 15000, commandTimeoutMs = 10000 } = {}) {
+function createBrowserController({ getOwner = () => null, onStopAgent = () => {}, onUserMessage = () => ({ error: 'unavailable' }), navigationTimeoutMs = 15000, commandTimeoutMs = 10000 } = {}) {
   installToolbarIPC();
   const tabs = new Map();       // tab_id -> tab
   const shells = new Map();     // owner (Code session) -> its browser window
@@ -82,6 +84,23 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
   const alive = (t) => Boolean(t && !t.wc.isDestroyed() && t.shell && !t.shell.win.isDestroyed());
   const activeTab = (shell) => shell.tabs.find(t => t.id === shell.active) || shell.tabs[shell.tabs.length - 1];
   const chromeHeight = (shell) => BAR_H + (shell.tabs.length > 1 ? TABS_H : 0);
+  const panelWidth = (shell) => {
+    if (!shell.panel || shell.win.isDestroyed()) return 0;
+    const [w] = shell.win.getContentSize();
+    return w < 900 ? Math.min(280, Math.round(w * 0.4)) : PANEL_W;
+  };
+  /** Deiza's feed in the side panel: its actions, what it says, what you wrote to it. */
+  function feed(shell, kind, text) {
+    const clean = cleanText(text, 600).trim();
+    if (!clean) return;
+    const last = shell.feed[shell.feed.length - 1];
+    if (kind === 'status' && last && last.kind === 'status') { last.text = clean; last.at = Date.now(); }
+    else if (!(last && last.kind === kind && last.text === clean)) shell.feed.push({ kind, text: clean, at: Date.now() });
+    if (shell.feed.length > FEED_MAX) shell.feed.splice(0, shell.feed.length - FEED_MAX);
+    // The panel opens by itself the first time Deiza works here, unless you closed it.
+    if (kind !== 'status' && !shell.panel && !shell.panelClosed) { shell.panel = true; layoutShell(shell); }
+    publishShell(shell);
+  }
 
   function adopt(key, ctx) {
     // A browser opened by hand before the session existed belongs to the first session that uses it.
@@ -150,7 +169,8 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     } : { url: '', title: '', loading: false, canGoBack: false, canGoForward: false, error: '', blank: true };
     return {
       ...tab, language: I18n.uiLanguage(), platform: process.platform, fullscreen: shell.win.isFullScreen(),
-      chrome: chromeHeight(shell), agent: agentState(shell),
+      chrome: chromeHeight(shell), agent: agentState(shell), panel: Boolean(shell.panel), panelWidth: panelWidth(shell),
+      feed: shell.feed.slice(-FEED_MAX), kind: /^work_/.test(shell.owner) ? 'work' : /^cli_/.test(shell.owner) ? 'cli' : 'code',
       tabs: shell.tabs.filter(alive).map(x => ({ id: x.id, title: cleanText(x.wc.getTitle(), 90) || hostOf(x.wc.getURL()) || w.newTab,
         loading: x.wc.isLoading(), active: x.id === shell.active, blank: x.blank })),
     };
@@ -171,6 +191,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     const shell = t.shell;
     shell.activity = cleanText(label, 120);
     shell.activityAt = Date.now();
+    feed(shell, 'action', shell.activity);
     clearTimeout(shell.activityTimer);
     shell.activityTimer = setTimeout(() => publishShell(shell), 12500);
     publishShell(shell);
@@ -181,7 +202,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     if (!shell || shell.win.isDestroyed()) return;
     const [w, h] = shell.win.getContentSize();
     const top = chromeHeight(shell);
-    const bounds = { x: 0, y: top, width: Math.max(1, w), height: Math.max(1, h - top) };
+    const bounds = { x: 0, y: top, width: Math.max(1, w - panelWidth(shell)), height: Math.max(1, h - top) };
     for (const t of shell.tabs) {
       if (t.wc.isDestroyed()) continue;
       t.view.setBounds(bounds);
@@ -209,7 +230,8 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
       icon: IS_MAC ? undefined : ICON,
       webPreferences: { preload: path.join(__dirname, '../preload/computer.js'), sandbox: true, nodeIntegration: false, contextIsolation: true, webSecurity: true },
     });
-    const shell = { owner, win, tabs: [], active: null, toolbarId: win.webContents.id, activity: '', activityAt: 0 };
+    const shell = { owner, win, tabs: [], active: null, toolbarId: win.webContents.id, activity: '', activityAt: 0,
+      feed: [], panel: false, panelClosed: false };
     shells.set(owner, shell);
     const relayout = () => { layoutShell(shell); setImmediate(() => layoutShell(shell)); };
     for (const ev of ['resize', 'resized', 'maximize', 'unmaximize', 'restore', 'show']) win.on(ev, relayout);
@@ -404,6 +426,20 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     try {
       if (action === 'state') return shellState(shell);
       if (action === 'fullscreen') { shell.win.setFullScreen(!shell.win.isFullScreen()); return shellState(shell); }
+      if (action === 'panel') {
+        shell.panel = !shell.panel;
+        shell.panelClosed = !shell.panel;
+        layoutShell(shell); publishShell(shell);
+        return shellState(shell);
+      }
+      if (action === 'send') {
+        const text = cleanText(value, 8000).trim();
+        if (!text) return shellState(shell);
+        feed(shell, 'user', text);
+        const res = await Promise.resolve(onUserMessage(shell.owner, text)).catch(err => ({ error: err.message }));
+        if (res && res.error) feed(shell, 'say', res.error === 'busy' ? 'Deiza está terminando otra cosa; vuelve a enviarlo en un momento.' : `No se pudo enviar: ${res.error}`);
+        return shellState(shell);
+      }
       if (action === 'stop-agent') {
         onStopAgent(shell.owner);
         shell.activityAt = 0;
@@ -849,6 +885,25 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     }
     publishShell(shell);
   }
+  /** What Code or Work says or does (from outside the browser) for the panel of that session. */
+  function say(id, item = {}) {
+    const shell = shells.get(String(id || ''));
+    if (!shell || shell.win.isDestroyed()) return false;
+    const kind = ['say', 'status', 'action', 'user'].includes(item.kind) ? item.kind : 'say';
+    feed(shell, kind, item.text);
+    return true;
+  }
+  /** Shows the browser of a session; when it was closed, opens it again on `url` (or empty). */
+  async function reveal(id, url) {
+    const ctx = { sessionId: id };
+    if (owned(ctx).length) { const t = select({}, ctx); present(t, true); return info(t); }
+    let target = '';
+    try { target = url ? validateURL(url, {}) : ''; } catch { target = ''; }
+    if (target && target !== 'about:blank') return execute('browser_open', { url: target }, ctx);
+    const t = createTab(ctx);
+    present(t, true);
+    return info(t);
+  }
   function state(id) { const ctx = { sessionId: id }; return { available: true, tabs: owned(ctx).map(info) }; }
   async function open(payload = {}) {
     const ctx = { sessionId: payload.id };
@@ -868,6 +923,6 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     for (const shell of shells.values()) if (!shell.win.isDestroyed()) shell.win.destroy();
     shells.clear(); tabs.clear(); sessions.clear();
   }
-  return { execute, work, state, open, focus, close, setAgent, shutdown };
+  return { execute, work, say, reveal, state, open, focus, close, setAgent, shutdown };
 }
 module.exports = { createBrowserController, addressToURL };

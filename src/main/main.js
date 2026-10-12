@@ -627,8 +627,11 @@ function setupIpc() {
   // local browser v1: Deiza Work in the Chat view runs its browser here (main frame of deiza.org only)
   ipcMain.handle('chat:work-browser', (e, payload) => (fromChat(e) && e.senderFrame === e.sender.mainFrame
     ? computerHost.work(payload || {}) : { error: 'Acceso no permitido.' }));
-  ipcMain.handle('chat:work-browser-focus', (e, chatId) => (fromChat(e) && Number.isSafeInteger(Number(chatId)) && Number(chatId) > 0
-    ? computerHost.focus(`work_${Number(chatId)}`) : null));
+  ipcMain.handle('chat:work-browser-focus', (e, chatId, url) => (fromChat(e) ? computerHost.revealWork(chatId, url) : null));
+  ipcMain.on('chat:work-say', (e, chatId, item) => {
+    if (!fromChat(e) || !item || typeof item !== 'object' || !Number.isSafeInteger(Number(chatId)) || Number(chatId) <= 0) return;
+    computerHost.say(`work_${Number(chatId)}`, { kind: String(item.kind || ''), text: String(item.text || '').slice(0, 600) });
+  });
   // Local UI
   ipcMain.handle('app:init', (e) => {
     if (!fromApp(e)) return null;
@@ -891,10 +894,15 @@ app.whenReady().then(async () => {
   setupAppSession();
   preview.register();
   codeHost.init({ origin: DEIZA_ORIGIN, auth, getLanguage: appLanguage });
+  const toChat = (channel, ...args) => { if (chatView && !chatView.webContents.isDestroyed()) chatView.webContents.send(channel, ...args); };
   computerHost.init({ getOwner: () => win, stopSession: (id) => {
     // A Work job of the Chat view drives this browser: its Stop button stops that job on deiza.org.
-    if (/^work_\d+$/.test(id)) { if (chatView && !chatView.webContents.isDestroyed()) chatView.webContents.send('desktop:work-stop', Number(id.slice(5))); }
+    if (/^work_\d+$/.test(id)) toChat('desktop:work-stop', Number(id.slice(5)));
     else codeHost.abort(id);
+  }, userMessage: (id, text) => {
+    // Written in the browser's Deiza panel: to the Work chat (through the web) or to the Code session.
+    if (/^work_\d+$/.test(id)) { toChat('desktop:work-steer', Number(id.slice(5)), text); return { ok: true }; }
+    return codeHost.message(id, text);
   } });
   setupIpc();
   buildMenu();

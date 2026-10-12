@@ -184,6 +184,12 @@ function emit(id, ev) {
   const doc = loadDoc(id);
   if (!doc) return;
   if (ev.t !== 'status') Transcript.apply(doc.items, ev);
+  // The Deiza panel of this session's browser (if it has one) follows what Deiza says and does.
+  if (ev.t === 'status' && ev.text) computerHost.say(id, { kind: 'status', text: ev.text });
+  else if (ev.t === 'text_end') {
+    const last = [...doc.items].reverse().find(it => it.k === 'text');
+    if (last && last.text) computerHost.say(id, { kind: 'say', text: String(last.text).slice(-600) });
+  } else if (ev.t === 'user' && ev.text) computerHost.say(id, { kind: 'user', text: ev.text });
   doc.seq = (doc.seq || 0) + 1;
   ctx?.send('code:event', { id, seq: doc.seq, ev });
   if (ev.t === 'turn_end') {
@@ -419,6 +425,15 @@ function steer({ id, text } = {}) {
   emit(id, { t: 'user', id: itemId, text: input, images: [], attachments: [], turnId: r.turnId, steer: true });
   w.proc.postMessage({ type: 'steer', id: itemId, text: input });
   return { ok: true, id: itemId };
+}
+
+/** A message from the browser's Deiza panel: into the running turn, or a new turn when idle. */
+async function message(id, text) {
+  const r = steer({ id, text });
+  if (!r.error || r.error !== 'idle') return r;
+  const doc = loadDoc(id);
+  if (!doc) return { error: 'not_found' };
+  return send({ id, text, images: [], attachments: [], mode: doc.mode, model: doc.model, effort: doc.effort });
 }
 
 /** Messages the turn never got to read: a new turn answers them, unless the user stopped it. */
@@ -1054,4 +1069,4 @@ function setPref(key, value) {
   else if (key === 'defaultEffort' && EFFORTS.includes(value)) prefs.set('defaultEffort', value);
 }
 
-module.exports = { init, setupIpc, shutdown, invalidateSkills, setPref, abort, isBusy: () => running.size > 0 };
+module.exports = { init, setupIpc, shutdown, invalidateSkills, setPref, abort, message, isBusy: () => running.size > 0 };

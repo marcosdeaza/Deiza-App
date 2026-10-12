@@ -20,7 +20,14 @@ if (location.protocol === 'file:') {
     notify: (title, body) => ipcRenderer.send('chat:notify', { title: String(title || ''), body: String(body || '') }),
     // local browser v1: Deiza Work's browser runs on this computer (full screen, Deiza's pointer)
     workBrowser: (payload) => ipcRenderer.invoke('chat:work-browser', payload),
-    workBrowserFocus: (chatId) => ipcRenderer.invoke('chat:work-browser-focus', Number(chatId) || 0),
+    workBrowserFocus: (chatId, url) => ipcRenderer.invoke('chat:work-browser-focus', Number(chatId) || 0, String(url || '')),
+    // work continuity v1: the Work job's activity for the browser's Deiza panel, and what you write there
+    workSay: (chatId, item) => ipcRenderer.send('chat:work-say', Number(chatId) || 0, { kind: String(item?.kind || ''), text: String(item?.text || '') }),
+    onWorkSteer: (cb) => {
+      const fn = (_e, id, text) => { try { cb(Number(id), String(text || '')); } catch { /* page handler */ } };
+      ipcRenderer.on('desktop:work-steer', fn);
+      return () => ipcRenderer.removeListener('desktop:work-steer', fn);
+    },
     onWorkStop: (cb) => {
       const fn = (_e, id) => { try { cb(Number(id)); } catch { /* page handler */ } };
       ipcRenderer.on('desktop:work-stop', fn);

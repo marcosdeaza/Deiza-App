@@ -7,12 +7,16 @@ const WORDS = {
     idle: 'Deiza Code', working: 'Deiza está trabajando', stop: 'Detener', stopTip: 'Detener a Deiza', fullscreen: 'Pantalla completa',
     exitFullscreen: 'Salir de pantalla completa', newTab: 'Nueva pestaña', closeTab: 'Cerrar pestaña', title: 'El navegador de Deiza',
     text: 'Escribe una dirección arriba o pide en Code que abra una página. Cuando Deiza la use verás su puntero en cada clic.',
-    keys: [['L', 'dirección'], ['T', 'pestaña'], ['R', 'recargar']], fsKey: 'pantalla completa', window: 'Navegador · Deiza Code' },
+    keys: [['L', 'dirección'], ['T', 'pestaña'], ['R', 'recargar']], fsKey: 'pantalla completa', window: 'Navegador · Deiza Code',
+    panel: 'Panel de Deiza', panelClose: 'Ocultar panel', send: 'Enviar', write: 'Escribe a Deiza…', writeIdle: 'Pídele algo a Deiza…',
+    working: 'trabajando', idle: 'en espera', emptyFeed: 'Aquí verás lo que hace Deiza en esta página y podrás escribirle mientras trabaja.' },
   en: { back: 'Back', forward: 'Forward', reload: 'Reload', stopLoad: 'Stop loading', address: 'Search or type an address',
     idle: 'Deiza Code', working: 'Deiza is working', stop: 'Stop', stopTip: 'Stop Deiza', fullscreen: 'Full screen',
     exitFullscreen: 'Exit full screen', newTab: 'New tab', closeTab: 'Close tab', title: "Deiza's browser",
     text: 'Type an address above or ask Code to open a page. When Deiza uses it you will see its pointer on every click.',
-    keys: [['L', 'address'], ['T', 'tab'], ['R', 'reload']], fsKey: 'full screen', window: 'Browser · Deiza Code' },
+    keys: [['L', 'address'], ['T', 'tab'], ['R', 'reload']], fsKey: 'full screen', window: 'Browser · Deiza Code',
+    panel: "Deiza's panel", panelClose: 'Hide panel', send: 'Send', write: 'Write to Deiza…', writeIdle: 'Ask Deiza something…',
+    working: 'working', idle: 'idle', emptyFeed: 'Here you will see what Deiza does on this page, and you can write to it while it works.' },
 };
 let editing = false;
 let loading = false;
@@ -41,6 +45,7 @@ function texts() {
   url.placeholder = t.address;
   url.setAttribute('aria-label', t.address);
   $('agent-stop-text').textContent = t.stop;
+  $('side-text').placeholder = t.write;
   $('agent-stop').title = t.stopTip;
   $('start-title').textContent = t.title;
   $('start-text').textContent = t.text;
@@ -116,10 +121,60 @@ function render(s) {
   $('agent-text').textContent = agent.running ? (agent.label || t.working) : t.idle;
   $('agent-stop').hidden = !agent.running;
   renderTabs(s);
+  renderSide(s, agent);
   $('start').hidden = !s.blank;
   err.hidden = !s.error;
   err.textContent = s.error || '';
 }
+
+let feedKey = '';
+function renderSide(s, agent) {
+  const t = w();
+  const on = Boolean(s.panel);
+  $('side').hidden = !on;
+  document.body.classList.toggle('side-on', on);
+  $('panel-toggle').classList.toggle('on', on);
+  document.documentElement.style.setProperty('--side', `${s.panelWidth || 340}px`);
+  if (!on) return;
+  $('side-state').textContent = agent.running ? t.working : t.idle;
+  $('side-state').className = `side-state${agent.running ? ' on' : ''}`;
+  $('side-text').placeholder = agent.running ? t.write : t.writeIdle;
+  const items = (s.feed || []).filter(x => x.kind !== 'status');
+  const status = agent.running ? [...(s.feed || [])].reverse().find(x => x.kind === 'status') : null;
+  $('side-status').hidden = !status;
+  if (status) $('side-status-text').textContent = status.text;
+  const key = items.map(x => `${x.at}:${x.kind}:${x.text.length}`).join('|');
+  if (key === feedKey) return;
+  feedKey = key;
+  const list = $('feed');
+  const stick = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  list.textContent = '';
+  if (!items.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = t.emptyFeed; list.append(li); }
+  for (const x of items) {
+    const li = document.createElement('li');
+    li.className = x.kind;
+    li.textContent = x.text;
+    list.append(li);
+  }
+  if (stick) list.scrollTop = list.scrollHeight;
+}
+const sideText = $('side-text');
+const fitSide = () => { sideText.style.height = 'auto'; sideText.style.height = `${Math.min(120, sideText.scrollHeight)}px`; };
+sideText.addEventListener('input', fitSide);
+sideText.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('side-form').requestSubmit(); }
+});
+$('side-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = sideText.value.trim();
+  if (!text) return;
+  sideText.value = '';
+  fitSide();
+  api.send(text).then(render);
+});
+$('panel-toggle').onclick = () => api.panel().then(render);
+$('side-close').onclick = () => api.panel().then(render);
+$('agent').onclick = (e) => { if (!e.target.closest('#agent-stop')) api.panel().then(render); };
 
 api.onState(render);
 api.onFocusAddress(() => { url.focus(); url.select(); });

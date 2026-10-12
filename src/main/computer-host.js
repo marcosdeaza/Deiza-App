@@ -178,11 +178,13 @@ function writeBridgeFile(file, data) {
     fs.renameSync(temp, file);
   } finally { if (fd !== undefined) fs.closeSync(fd); try { fs.unlinkSync(temp); } catch {} }
 }
-function init({ getOwner, stopSession } = {}) {
+function init({ getOwner, stopSession, userMessage } = {}) {
   if (server || browser || desktop) shutdown();
   quitting = false;
-  // The browser's Stop button ends the Code turn that drives it, not only the action in flight.
-  browser = createBrowserController({ getOwner, onStopAgent: (id) => { cancelSession(id); try { stopSession?.(id); } catch { /* session gone */ } } });
+  // The browser's Stop button ends the Code turn that drives it, not only the action in flight;
+  // what you write in its Deiza panel goes to that Code session or Work chat.
+  browser = createBrowserController({ getOwner, onStopAgent: (id) => { cancelSession(id); try { stopSession?.(id); } catch { /* session gone */ } },
+    onUserMessage: (id, text) => (userMessage ? userMessage(id, text) : { error: 'unavailable' }) });
   desktop = createDesktopController({ getOwner });
   bridgeToken = crypto.randomBytes(32).toString('hex');
   bridgeFile = path.join(app.getPath('userData'), 'computer-bridge.json');
@@ -235,7 +237,16 @@ async function work(payload = {}) {
   finally { clearTimeout(timer); requests.delete(key); }
 }
 
+/** Activity of a Code session or Work chat for the Deiza panel of its browser. */
+function say(id, item) { return validId(id) && browser ? browser.say(id, item) : false; }
+/** Shows the browser of a Work chat, reopening it on `url` if it was closed. */
+function revealWork(chatId, url) {
+  const n = Number(chatId);
+  if (!browser || !Number.isSafeInteger(n) || n <= 0) return { error: 'Chat no válido.' };
+  return browser.reveal(`work_${n}`, typeof url === 'string' && url.length <= 2048 ? url : '');
+}
+
 /** Code tells the browser when a session's turn starts and ends (toolbar status and pointer). */
 function agentState(id, running) { if (validId(id)) browser?.setAgent(id, running); }
-module.exports = { init, state, execute, request, cancel, cancelSession, shutdown, agentState, work,
+module.exports = { init, state, execute, request, cancel, cancelSession, shutdown, agentState, work, say, revealWork,
   open: payload => browser.open(payload), focus: id => browser.focus(id), close: id => browser.close(id) };
