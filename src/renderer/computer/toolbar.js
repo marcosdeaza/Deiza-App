@@ -9,19 +9,37 @@ const WORDS = {
     text: 'Escribe una dirección arriba o pide en Code que abra una página. Cuando Deiza la use verás su puntero en cada clic.',
     keys: [['L', 'dirección'], ['T', 'pestaña'], ['R', 'recargar']], fsKey: 'pantalla completa', window: 'Navegador · Deiza Code',
     panel: 'Panel de Deiza', panelClose: 'Ocultar panel', send: 'Enviar', write: 'Escribe a Deiza…', writeIdle: 'Pídele algo a Deiza…',
-    working: 'trabajando', idle: 'en espera', emptyFeed: 'Aquí verás lo que hace Deiza en esta página y podrás escribirle mientras trabaja.' },
+    working: 'trabajando', idle: 'en espera', stopping: 'deteniendo…', emptyFeed: 'Abre tu correo, tus clases o una web y pide a Deiza lo que necesitas.',
+    dictate: 'Dictar mensaje', discard: 'Descartar dictado', transcribe: 'Transcribir dictado', listening: 'Escuchando…', transcribing: 'Transcribiendo…',
+    workContext: 'Work en esta página', codeContext: 'Code en esta página', options: 'Modelo y esfuerzo', nextTask: 'Modelo para el próximo encargo',
+    model: 'Modelo', effort: 'Esfuerzo', efforts: ['Bajo', 'Auto', 'Alto', 'Máximo'], enter: 'Intro para enviar', steerHint: 'Lo leerá en el siguiente paso',
+    queued: 'Instrucción enviada. La leerá mientras trabaja; el modelo elegido se usará en el próximo encargo.', sent: 'Mensaje enviado',
+    unconfirmed: 'No se pudo confirmar el envío. Comprueba el chat antes de volver a enviarlo.', sendError: 'No se pudo enviar. Tu mensaje sigue en la caja.',
+    micDenied: 'Activa el micrófono para Deiza en los ajustes del sistema.', micError: 'No se pudo abrir el micrófono.',
+    voiceAuth: 'Inicia sesión en Deiza para dictar.', voiceRate: 'Espera un momento antes de volver a dictar.', voiceOffline: 'Sin conexión con Deiza.',
+    voiceEmpty: 'No se oyó nada. Prueba otra vez.', voiceError: 'No se pudo transcribir el audio.' },
   en: { back: 'Back', forward: 'Forward', reload: 'Reload', stopLoad: 'Stop loading', address: 'Search or type an address',
     idle: 'Deiza Code', working: 'Deiza is working', stop: 'Stop', stopTip: 'Stop Deiza', fullscreen: 'Full screen',
     exitFullscreen: 'Exit full screen', newTab: 'New tab', closeTab: 'Close tab', title: "Deiza's browser",
     text: 'Type an address above or ask Code to open a page. When Deiza uses it you will see its pointer on every click.',
     keys: [['L', 'address'], ['T', 'tab'], ['R', 'reload']], fsKey: 'full screen', window: 'Browser · Deiza Code',
     panel: "Deiza's panel", panelClose: 'Hide panel', send: 'Send', write: 'Write to Deiza…', writeIdle: 'Ask Deiza something…',
-    working: 'working', idle: 'idle', emptyFeed: 'Here you will see what Deiza does on this page, and you can write to it while it works.' },
+    working: 'working', idle: 'idle', stopping: 'stopping…', emptyFeed: 'Open your mail, your classes or a website, then ask Deiza for what you need.',
+    dictate: 'Dictate a message', discard: 'Discard dictation', transcribe: 'Transcribe dictation', listening: 'Listening…', transcribing: 'Transcribing…',
+    workContext: 'Work on this page', codeContext: 'Code on this page', options: 'Model and effort', nextTask: 'Model for the next task',
+    model: 'Model', effort: 'Effort', efforts: ['Low', 'Auto', 'High', 'Max'], enter: 'Enter to send', steerHint: 'Read at the next step',
+    queued: 'Instruction sent. It will be read while working; the chosen model applies to the next task.', sent: 'Message sent',
+    unconfirmed: 'The send could not be confirmed. Check the chat before sending it again.', sendError: 'Could not send. Your message is still in the text box.',
+    micDenied: 'Enable the microphone for Deiza in system settings.', micError: 'Could not open the microphone.',
+    voiceAuth: 'Sign in to Deiza to dictate.', voiceRate: 'Wait a moment before dictating again.', voiceOffline: 'No connection to Deiza.',
+    voiceEmpty: 'No speech was heard. Try again.', voiceError: 'Could not transcribe the audio.' },
 };
 let editing = false;
 let loading = false;
 let lang = '';
 let platform = '';
+let sending = false;
+let latestState = null;
 const w = () => WORDS[lang === 'en' ? 'en' : 'es'];
 const svg = (d) => `<svg viewBox="0 0 16 16"><path d="${d}"/></svg>`;
 
@@ -46,6 +64,11 @@ function texts() {
   url.setAttribute('aria-label', t.address);
   $('agent-stop-text').textContent = t.stop;
   $('side-text').placeholder = t.write;
+  $('side-text').setAttribute('aria-label', t.write);
+  $('side-model').setAttribute('aria-label', t.model);
+  $('side-effort').setAttribute('aria-label', t.effort);
+  [...$('side-effort').options].forEach((o, i) => { o.textContent = t.efforts[i]; });
+  $('voice-label').textContent = t.listening;
   $('agent-stop').title = t.stopTip;
   $('start-title').textContent = t.title;
   $('start-text').textContent = t.text;
@@ -104,6 +127,7 @@ function render(s) {
     captionInset();
   }
   const t = w();
+  latestState = s;
   loading = Boolean(s.loading);
   document.body.classList.toggle('fullscreen', Boolean(s.fullscreen));
   document.documentElement.style.setProperty('--chrome', `${s.chrome || 46}px`);
@@ -118,8 +142,9 @@ function render(s) {
   document.title = s.title ? `${s.title} · Deiza Code` : t.window;
   const agent = s.agent || {};
   $('agent').classList.toggle('on', Boolean(agent.running));
-  $('agent-text').textContent = agent.running ? (agent.label || t.working) : t.idle;
+  $('agent-text').textContent = agent.stopping ? t.stopping : agent.running ? (agent.label || t.working) : t.idle;
   $('agent-stop').hidden = !agent.running;
+  $('agent-stop').disabled = Boolean(agent.stopping);
   renderTabs(s);
   renderSide(s, agent);
   $('start').hidden = !s.blank;
@@ -127,7 +152,7 @@ function render(s) {
   err.textContent = s.error || '';
 }
 
-let feedKey = '';
+let feedKey = null;
 function renderSide(s, agent) {
   const t = w();
   const on = Boolean(s.panel);
@@ -135,43 +160,162 @@ function renderSide(s, agent) {
   document.body.classList.toggle('side-on', on);
   $('panel-toggle').classList.toggle('on', on);
   document.documentElement.style.setProperty('--side', `${s.panelWidth || 340}px`);
-  if (!on) return;
-  $('side-state').textContent = agent.running ? t.working : t.idle;
+  if (!on) { if (dictation) dictation.finish(false); return; }
+  $('side-state').textContent = agent.stopping ? t.stopping : agent.running ? t.working : t.idle;
   $('side-state').className = `side-state${agent.running ? ' on' : ''}`;
   $('side-text').placeholder = agent.running ? t.write : t.writeIdle;
+  $('side-context-label').textContent = s.kind === 'work' ? t.workContext : t.codeContext;
+  try { $('side-page').textContent = s.url && s.url !== 'about:blank' ? new URL(s.url).hostname : ''; } catch { $('side-page').textContent = ''; }
+  $('side-options').hidden = s.kind !== 'work';
+  $('options-label').textContent = agent.running ? t.nextTask : t.options;
+  if (s.options) { $('side-model').value = s.options.model; $('side-effort').value = s.options.effort; }
+  $('compose-hint').textContent = agent.running ? t.steerHint : t.enter;
+  composerBusy();
   const items = (s.feed || []).filter(x => x.kind !== 'status');
   const status = agent.running ? [...(s.feed || [])].reverse().find(x => x.kind === 'status') : null;
-  $('side-status').hidden = !status;
-  if (status) $('side-status-text').textContent = status.text;
-  const key = items.map(x => `${x.at}:${x.kind}:${x.text.length}`).join('|');
+  $('side-status').hidden = !agent.running;
+  $('side-status-text').textContent = agent.stopping ? t.stopping : status?.text || agent.label || t.working;
+  const itemKey = x => `${x.at}:${x.kind}:${x.text}`;
+  const key = `${lang}|${items.map(itemKey).join('|')}`;
   if (key === feedKey) return;
   feedKey = key;
   const list = $('feed');
   const stick = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-  list.textContent = '';
-  if (!items.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = t.emptyFeed; list.append(li); }
-  for (const x of items) {
-    const li = document.createElement('li');
-    li.className = x.kind;
-    li.textContent = x.text;
-    list.append(li);
+  if (!items.length) {
+    list.textContent = '';
+    const li = document.createElement('li'); li.className = 'empty'; li.textContent = t.emptyFeed; list.append(li);
+  } else {
+    // Retain earlier rows: a new browser action should animate and announce only its own row.
+    const existing = new Map([...list.children].map(li => [li.dataset.feedKey, li]));
+    const wanted = new Set(items.map(itemKey));
+    for (const li of [...list.children]) if (!wanted.has(li.dataset.feedKey)) li.remove();
+    items.forEach((x, i) => {
+      const id = itemKey(x);
+      let li = existing.get(id);
+      if (!li) { li = document.createElement('li'); li.className = x.kind; li.textContent = x.text; li.dataset.feedKey = id; }
+      const before = list.children[i];
+      if (before !== li) list.insertBefore(li, before || null);
+    });
   }
   if (stick) list.scrollTop = list.scrollHeight;
 }
 const sideText = $('side-text');
 const fitSide = () => { sideText.style.height = 'auto'; sideText.style.height = `${Math.min(120, sideText.scrollHeight)}px`; };
-sideText.addEventListener('input', fitSide);
+sideText.addEventListener('input', () => { fitSide(); $('side-feedback').hidden = true; });
 sideText.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('side-form').requestSubmit(); }
 });
-$('side-form').addEventListener('submit', (e) => {
+$('side-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = sideText.value.trim();
-  if (!text) return;
-  sideText.value = '';
-  fitSide();
-  api.send(text).then(render);
+  if (!text || sending || dictation) return;
+  sending = true; composerBusy();
+  let result;
+  try { result = await api.send(text); } catch { result = null; }
+  sending = false;
+  if (result?.sendResult?.ok && !result.sendResult.error) {
+    sideText.value = ''; fitSide();
+    feedback(result.sendResult.queued ? w().queued : w().sent);
+  } else feedback(result?.sendResult?.error === 'unconfirmed' ? w().unconfirmed : w().sendError, true);
+  if (result) render(result);
+  composerBusy();
 });
+for (const id of ['side-model', 'side-effort']) $(id).onchange = () => api.options({ model: $('side-model').value, effort: $('side-effort').value }).then(render);
+function feedback(text, error = false) {
+  $('side-feedback').textContent = text;
+  $('side-feedback').classList.toggle('failure', error);
+  $('side-feedback').hidden = !text;
+}
+let dictation = null;
+let openingMic = false;
+function composerBusy() {
+  const busy = sending || latestState?.sending || openingMic || Boolean(dictation);
+  sideText.disabled = Boolean(busy);
+  $('side-send').disabled = Boolean(busy);
+  $('side-mic').disabled = Boolean(sending || latestState?.sending || openingMic || dictation?.done);
+  $('side-model').disabled = Boolean(sending || latestState?.sending);
+  $('side-effort').disabled = Boolean(sending || latestState?.sending);
+}
+async function startDictation() {
+  if (sending || openingMic || dictation) return;
+  openingMic = true; composerBusy();
+  let stream;
+  try {
+    if (!await api.micAccess()) { feedback(w().micDenied, true); return; }
+    feedback('');
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    // Closing the panel during the permission request never starts a hidden recording.
+    if ($('side').hidden) { stream.getTracks().forEach(track => track.stop()); return; }
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
+    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 64000 } : undefined);
+    const chunks = [];
+    const started = Date.now();
+    const job = { done: false, cancelled: false, finish: null };
+    dictation = job;
+    recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
+    $('voice-label').textContent = w().listening;
+    $('voice-clock').textContent = '0:00';
+    $('voice-strip').classList.remove('busy');
+    $('voice-strip').hidden = false;
+    $('voice-cancel').disabled = false;
+    $('voice-done').disabled = false;
+    $('side-form').classList.add('dictating');
+    const timer = setInterval(() => {
+      const seconds = Math.floor((Date.now() - started) / 1000);
+      $('voice-clock').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+      if (seconds >= 300) job.finish(true);
+    }, 250);
+    const cleanup = () => {
+      if (dictation !== job) return;
+      dictation = null; $('voice-strip').hidden = true; $('side-form').classList.remove('dictating'); composerBusy();
+    };
+    job.finish = async keep => {
+      if (!keep) job.cancelled = true;
+      if (job.done) { if (!keep) cleanup(); return; }
+      job.done = true;
+      clearInterval(timer);
+      const stopped = recorder.state === 'inactive' ? Promise.resolve() : new Promise(resolve => { recorder.onstop = resolve; });
+      if (recorder.state !== 'inactive') recorder.stop();
+      stream.getTracks().forEach(track => track.stop());
+      const durationMs = Date.now() - started;
+      if (!keep || durationMs < 600) { cleanup(); return; }
+      $('voice-strip').classList.add('busy');
+      $('voice-label').textContent = w().transcribing;
+      $('voice-done').disabled = true;
+      composerBusy();
+      await stopped;
+      let result;
+      try {
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        result = await api.transcribe({ audio: await blob.arrayBuffer(), mime: blob.type, durationMs, language: lang });
+      } catch { result = { error: 'offline' }; }
+      if (job.cancelled) return;
+      cleanup();
+      if (!result?.text || result.error) {
+        const errors = { auth: w().voiceAuth, rate: w().voiceRate, offline: w().voiceOffline, empty: w().voiceEmpty };
+        feedback(errors[result?.error] || (!result?.error ? w().voiceEmpty : w().voiceError), true);
+        return;
+      }
+      const before = sideText.value;
+      sideText.value = `${before}${before && !/\s$/.test(before) ? ' ' : ''}${result.text}`;
+      fitSide(); sideText.focus();
+    };
+    recorder.onerror = () => { job.finish(false); feedback(w().micError, true); };
+    recorder.start(250);
+  } catch {
+    stream?.getTracks().forEach(track => track.stop());
+    if (dictation) dictation.finish?.(false);
+    feedback(w().micError, true);
+  } finally { openingMic = false; composerBusy(); }
+}
+$('side-mic').onclick = startDictation;
+$('voice-cancel').onclick = () => dictation?.finish(false);
+$('voice-done').onclick = () => dictation?.finish(true);
+document.addEventListener('keydown', event => {
+  if (!dictation) return;
+  if (event.key === 'Escape' || event.key === 'Enter') { event.preventDefault(); dictation.finish(event.key === 'Enter'); }
+});
+window.addEventListener('beforeunload', () => dictation?.finish(false));
 $('panel-toggle').onclick = () => api.panel().then(render);
 $('side-close').onclick = () => api.panel().then(render);
 $('agent').onclick = (e) => { if (!e.target.closest('#agent-stop')) api.panel().then(render); };

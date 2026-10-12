@@ -23,8 +23,14 @@ if (location.protocol === 'file:') {
     workBrowserFocus: (chatId, url) => ipcRenderer.invoke('chat:work-browser-focus', Number(chatId) || 0, String(url || '')),
     // work continuity v1: the Work job's activity for the browser's Deiza panel, and what you write there
     workSay: (chatId, item) => ipcRenderer.send('chat:work-say', Number(chatId) || 0, { kind: String(item?.kind || ''), text: String(item?.text || '') }),
+    workState: (chatId, state) => ipcRenderer.send('chat:work-state', Number(chatId) || 0, {
+      running: Boolean(state?.running), model: String(state?.model || ''), effort: String(state?.effort || ''),
+    }),
+    workSteerResult: (requestId, result) => ipcRenderer.send('chat:work-steer-result', String(requestId || ''), {
+      ok: result?.ok === true, queued: result?.queued === true, idle: result?.idle === true, error: String(result?.error || '').slice(0, 200),
+    }),
     onWorkSteer: (cb) => {
-      const fn = (_e, id, text) => { try { cb(Number(id), String(text || '')); } catch { /* page handler */ } };
+      const fn = (_e, id, text, options) => { try { cb(Number(id), String(text || ''), options || {}); } catch { /* page handler */ } };
       ipcRenderer.on('desktop:work-steer', fn);
       return () => ipcRenderer.removeListener('desktop:work-steer', fn);
     },

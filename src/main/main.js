@@ -13,6 +13,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const {
   app, BrowserWindow, WebContentsView, ipcMain, shell, nativeTheme, Menu, dialog, session,
   Notification, systemPreferences, screen, globalShortcut, protocol, clipboard, net,
@@ -41,6 +42,18 @@ const WIN_MICA = IS_WIN && process.env.DEIZA_MATERIAL === '1' && Number(os.relea
 const MATERIAL = (IS_MAC && process.env.DEIZA_MATERIAL === '1') || WIN_MICA;
 const ROOT = path.join(__dirname, '..');
 const RENDERER = path.join(ROOT, 'renderer');
+const pendingWorkMessages = new Map();
+
+/** The panel keeps its draft until the trusted workspace confirms the send. */
+function sendWorkMessage(chatId, text, options) {
+  if (!chatView || chatView.webContents.isDestroyed() || !isDeizaUrl(chatView.webContents.getURL())) return Promise.resolve({ error: 'unavailable' });
+  const requestId = crypto.randomBytes(16).toString('hex');
+  return new Promise(resolve => {
+    const timer = setTimeout(() => { pendingWorkMessages.delete(requestId); resolve({ error: 'unconfirmed' }); }, 35000);
+    pendingWorkMessages.set(requestId, { chatId, resolve: result => { clearTimeout(timer); pendingWorkMessages.delete(requestId); resolve(result); } });
+    chatView.webContents.send('desktop:work-steer', chatId, text, { ...options, requestId });
+  });
+}
 
 // Hosts that may open inside the app as child windows (payments, identity providers).
 // Everything else outside deiza.org goes to the default browser.
@@ -452,7 +465,7 @@ function offerMoveToApplications() {
 /** The local UI (titlebar + Code) only ever needs the microphone, for dictation. */
 function setupAppSession() {
   const ses = session.defaultSession;
-  const local = (wc) => Boolean(win && wc === win.webContents);
+  const local = (wc) => Boolean(win && wc === win.webContents) || computerHost.isToolbar(wc);
   ses.setPermissionRequestHandler(async (wc, permission, callback, details) => {
     if (!local(wc)) return callback(false);
     if (permission === 'clipboard-sanitized-write') return callback(true);
@@ -631,6 +644,15 @@ function setupIpc() {
   ipcMain.on('chat:work-say', (e, chatId, item) => {
     if (!fromChat(e) || !item || typeof item !== 'object' || !Number.isSafeInteger(Number(chatId)) || Number(chatId) <= 0) return;
     computerHost.say(`work_${Number(chatId)}`, { kind: String(item.kind || ''), text: String(item.text || '').slice(0, 600) });
+  });
+  ipcMain.on('chat:work-state', (e, chatId, value) => {
+    if (!fromChat(e) || e.senderFrame !== e.sender.mainFrame || !value || typeof value !== 'object') return;
+    computerHost.workState(chatId, value);
+  });
+  ipcMain.on('chat:work-steer-result', (e, requestId, result) => {
+    if (!fromChat(e) || e.senderFrame !== e.sender.mainFrame || !result || typeof result !== 'object') return;
+    pendingWorkMessages.get(String(requestId))?.resolve({ ok: result.ok === true, queued: result.queued === true,
+      idle: result.idle === true, error: String(result.error || '').slice(0, 200) });
   });
   // Local UI
   ipcMain.handle('app:init', (e) => {
@@ -899,10 +921,16 @@ app.whenReady().then(async () => {
     // A Work job of the Chat view drives this browser: its Stop button stops that job on deiza.org.
     if (/^work_\d+$/.test(id)) toChat('desktop:work-stop', Number(id.slice(5)));
     else codeHost.abort(id);
-  }, userMessage: (id, text) => {
+  }, userMessage: (id, text, options) => {
     // Written in the browser's Deiza panel: to the Work chat (through the web) or to the Code session.
-    if (/^work_\d+$/.test(id)) { toChat('desktop:work-steer', Number(id.slice(5)), text); return { ok: true }; }
+    if (/^work_\d+$/.test(id)) return sendWorkMessage(Number(id.slice(5)), text, options);
     return codeHost.message(id, text);
+  }, transcribe: payload => codeHost.transcribe(payload), micAccess: async () => {
+    if (!IS_MAC) return true;
+    const status = systemPreferences.getMediaAccessStatus('microphone');
+    if (status === 'granted') return true;
+    if (status === 'denied' || status === 'restricted') return false;
+    return systemPreferences.askForMediaAccess('microphone');
   } });
   setupIpc();
   buildMenu();

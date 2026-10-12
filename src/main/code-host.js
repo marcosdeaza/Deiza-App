@@ -857,6 +857,7 @@ async function transcribe({ audio, mime, durationMs, language }) {
   try {
     const res = await net.fetch(`${ORIGIN}/api/transcribe`, {
       method: 'POST',
+      signal: AbortSignal.timeout(45000),
       headers: { 'X-Auth-Token': token, 'X-Deiza-Client': 'desktop', 'Content-Type': `multipart/form-data; boundary=${boundary}` },
       body,
     });
@@ -1069,4 +1070,4 @@ function setPref(key, value) {
   else if (key === 'defaultEffort' && EFFORTS.includes(value)) prefs.set('defaultEffort', value);
 }
 
-module.exports = { init, setupIpc, shutdown, invalidateSkills, setPref, abort, message, isBusy: () => running.size > 0 };
+module.exports = { init, setupIpc, shutdown, invalidateSkills, setPref, abort, message, transcribe, isBusy: () => running.size > 0 };

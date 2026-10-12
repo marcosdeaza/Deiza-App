@@ -43,12 +43,23 @@
       <span class="side-state" id="side-state"></span>
       <button class="side-close" id="side-close" data-tip="panelClose"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
     </header>
-    <ol class="feed" id="feed"></ol>
-    <div class="side-status" id="side-status" hidden><span class="pulse"></span><span id="side-status-text"></span></div>
+    <div class="side-context"><span id="side-context-label">Work en esta página</span><span id="side-page"></span></div>
+    <ol class="feed" id="feed" role="log" aria-live="polite" aria-relevant="additions"></ol>
+    <div class="side-status" id="side-status" role="status" hidden><svg class="work-signal" viewBox="0 0 24 24" aria-hidden="true"><path class="signal-track" d="M4 17V7h5v10h5V7h6v10"/><path class="signal-ink" d="M4 17V7h5v10h5V7h6v10"/></svg><span id="side-status-text"></span></div>
+    <div class="side-feedback" id="side-feedback" role="status" hidden></div>
     <form class="side-input" id="side-form" autocomplete="off">
-      <textarea id="side-text" rows="1" spellcheck="true"></textarea>
-      <button id="side-send" type="submit" data-tip="send"><svg viewBox="0 0 16 16"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></button>
+      <textarea id="side-text" rows="2" spellcheck="true" aria-label="Escribe a Deiza"></textarea>
+      <div class="side-compose-actions">
+        <button id="side-mic" class="mic" type="button" data-tip="dictate"><svg viewBox="0 0 16 16"><rect x="5.5" y="2" width="5" height="8" rx="2.5"/><path d="M3.5 7.5v.8a4.5 4.5 0 0 0 9 0v-.8M8 13v2M5.5 15h5"/></svg></button>
+        <span class="compose-hint" id="compose-hint"></span>
+        <button id="side-send" type="submit" data-tip="send"><svg viewBox="0 0 16 16"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></button>
+      </div>
+      <div class="voice-strip" id="voice-strip" hidden><span class="voice-dot"></span><span id="voice-clock">0:00</span><span id="voice-label">Escuchando…</span><button id="voice-cancel" type="button" data-tip="discard"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button><button id="voice-done" type="button" data-tip="transcribe"><svg viewBox="0 0 16 16"><path d="m3 8 3.5 3.5L13 5"/></svg></button></div>
     </form>
+    <div class="side-options" id="side-options" hidden>
+      <span class="options-label" id="options-label">Modelo y esfuerzo</span>
+      <div class="options-row"><select id="side-model" aria-label="Modelo"><option value="liquid">Liquid 5.5</option><option value="solid">Solid 5</option><option value="liquid51">Liquid 5.1</option></select><select id="side-effort" aria-label="Esfuerzo"><option value="low">Bajo</option><option value="medium">Auto</option><option value="high">Alto</option><option value="max">Máximo</option></select></div>
+    </div>
   </aside>
   <div class="error" id="error" hidden></div>
   <script src="toolbar.js"></script>

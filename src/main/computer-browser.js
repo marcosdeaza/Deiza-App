@@ -21,8 +21,10 @@ const BG = '#1c1917';
 const ICON = path.join(__dirname, '../renderer/icon.png');
 const TOOLBAR_FILE = path.join(__dirname, '../renderer/computer/index.html');
 const TOOLBAR_URL = pathToFileURL(TOOLBAR_FILE).href;
-const TOOLBAR_ACTIONS = ['state', 'navigate', 'back', 'forward', 'reload', 'stop', 'tab', 'close-tab', 'new-tab', 'fullscreen', 'stop-agent', 'panel', 'send'];
-const PANEL_W = 340;           // Deiza's side panel: what it is doing, and a box to write to it
+const TOOLBAR_ACTIONS = ['state', 'navigate', 'back', 'forward', 'reload', 'stop', 'tab', 'close-tab', 'new-tab', 'fullscreen', 'stop-agent', 'panel', 'send', 'options', 'mic-access', 'transcribe'];
+const PANEL_W = 370;
+const WORK_MODELS = new Set(['liquid', 'liquid51', 'solid']);
+const WORK_EFFORTS = new Set(['low', 'medium', 'high', 'max']);
 const FEED_MAX = 60;
 const toolbarRoutes = new Map();
 let toolbarIPCInstalled = false;
@@ -106,11 +108,12 @@ function addressToURL(text) {
   return `https://${v}`;
 }
 
-function createBrowserController({ getOwner = () => null, onStopAgent = () => {}, onUserMessage = () => ({ error: 'unavailable' }), navigationTimeoutMs = 15000, commandTimeoutMs = 10000 } = {}) {
+function createBrowserController({ getOwner = () => null, onStopAgent = () => {}, onUserMessage = () => ({ error: 'unavailable' }), onMicAccess = () => false, onTranscribe = () => ({ error: 'unavailable' }), navigationTimeoutMs = 15000, commandTimeoutMs = 10000 } = {}) {
   installToolbarIPC();
   const tabs = new Map();       // tab_id -> tab
   const shells = new Map();     // owner (Code session) -> its browser window
   const sessions = new Map();   // owner -> whether Code is running a turn there
+  const workOptions = new Map(); // latest composer choice, also retained when the browser is reopened
   let sequence = 0;
   let elementSequence = 0;
   let shuttingDown = false;
@@ -123,7 +126,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
   const panelWidth = (shell) => {
     if (!shell.panel || shell.win.isDestroyed()) return 0;
     const [w] = shell.win.getContentSize();
-    return w < 900 ? Math.min(280, Math.round(w * 0.4)) : PANEL_W;
+    return w < 900 ? Math.min(310, Math.round(w * 0.42)) : PANEL_W;
   };
   /** Deiza's feed in the side panel: its actions, what it says, what you wrote to it. */
   function feed(shell, kind, text) {
@@ -145,6 +148,8 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     if (!manual || manual.win.isDestroyed()) return;
     shells.delete('manual');
     manual.owner = key;
+    manual.options = { ...(workOptions.get(key) || manual.options) };
+    manual.optionsDirty = false;
     shells.set(key, manual);
     for (const t of manual.tabs) { t.owner = key; t.context = { sessionId: key, folder: ctx.folder }; }
   }
@@ -197,7 +202,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     const known = sessions.has(shell.owner);
     const recent = Date.now() - (shell.activityAt || 0) < 12000;
     const running = known ? sessions.get(shell.owner) : recent;
-    return { running: Boolean(running), label: running && recent ? shell.activity || '' : '' };
+    return { running: Boolean(running), stopping: Boolean(running && shell.stopping), label: running && recent ? shell.activity || '' : '' };
   }
   function shellState(shell) {
     const t = activeTab(shell);
@@ -210,6 +215,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
       ...tab, language: I18n.uiLanguage(), platform: process.platform, fullscreen: shell.win.isFullScreen(),
       chrome: chromeHeight(shell), agent: agentState(shell), panel: Boolean(shell.panel), panelWidth: panelWidth(shell),
       feed: shell.feed.slice(-FEED_MAX), kind: /^work_/.test(shell.owner) ? 'work' : /^cli_/.test(shell.owner) ? 'cli' : 'code',
+      options: shell.options || workOptions.get(shell.owner) || { model: 'liquid', effort: 'medium' }, sending: Boolean(shell.sending),
       tabs: shell.tabs.filter(alive).map(x => ({ id: x.id, title: cleanText(x.wc.getTitle(), 90) || hostOf(x.wc.getURL()) || w.newTab,
         loading: x.wc.isLoading(), active: x.id === shell.active, blank: x.blank })),
     };
@@ -270,7 +276,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
       webPreferences: { preload: path.join(__dirname, '../preload/computer.js'), sandbox: true, nodeIntegration: false, contextIsolation: true, webSecurity: true },
     });
     const shell = { owner, win, tabs: [], active: null, toolbarId: win.webContents.id, activity: '', activityAt: 0,
-      feed: [], panel: false, panelClosed: false };
+      feed: [], panel: false, panelClosed: false, options: { ...(workOptions.get(owner) || { model: 'liquid', effort: 'medium' }) } };
     shells.set(owner, shell);
     const relayout = () => { layoutShell(shell); setImmediate(() => layoutShell(shell)); };
     for (const ev of ['resize', 'resized', 'maximize', 'unmaximize', 'restore', 'show']) win.on(ev, relayout);
@@ -472,15 +478,32 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
         return shellState(shell);
       }
       if (action === 'send') {
-        const text = cleanText(value, 8000).trim();
+        if (shell.sending) return { ...shellState(shell), sendResult: { error: 'busy' } };
+        const text = cleanText(typeof value === 'object' ? value?.text : value, 8000).trim();
         if (!text) return shellState(shell);
-        feed(shell, 'user', text);
-        const res = await Promise.resolve(onUserMessage(shell.owner, text)).catch(err => ({ error: err.message }));
-        if (res && res.error) feed(shell, 'say', res.error === 'busy' ? 'Deiza está terminando otra cosa; vuelve a enviarlo en un momento.' : `No se pudo enviar: ${res.error}`);
+        shell.sending = true; publishShell(shell);
+        let res;
+        try { res = await Promise.resolve(onUserMessage(shell.owner, text, { ...shell.options })); }
+        catch { res = { error: 'offline' }; }
+        finally { shell.sending = false; }
+        if (res?.ok && !res.error) { feed(shell, 'user', text); shell.optionsDirty = false; }
+        publishShell(shell);
+        return { ...shellState(shell), sendResult: res || { error: 'unavailable' } };
+      }
+      if (action === 'options') {
+        if (/^work_/.test(shell.owner) && value && typeof value === 'object' && !shell.sending) {
+          if (WORK_MODELS.has(value.model)) shell.options.model = value.model;
+          if (WORK_EFFORTS.has(value.effort)) shell.options.effort = value.effort;
+          shell.optionsDirty = true;
+          publishShell(shell);
+        }
         return shellState(shell);
       }
+      if (action === 'mic-access') return Boolean(await onMicAccess());
+      if (action === 'transcribe') return await onTranscribe(value && typeof value === 'object' ? value : {});
       if (action === 'stop-agent') {
         onStopAgent(shell.owner);
+        shell.stopping = true;
         shell.activityAt = 0;
         for (const x of shell.tabs) if (alive(x)) pointer(x, { kind: 'hide' }).catch(() => {});
         publishShell(shell);
@@ -981,10 +1004,23 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     const shell = shells.get(key);
     if (!shell || shell.win.isDestroyed()) return;
     if (!running) {
+      shell.stopping = false;
       shell.activityAt = 0;
       for (const t of shell.tabs) if (alive(t)) pointer(t, { kind: 'hide' }).catch(() => {});
     }
     publishShell(shell);
+  }
+  function setWorkState(id, value = {}) {
+    const key = String(id || '');
+    if (!/^work_\d+$/.test(key)) return;
+    const opts = workOptions.get(key) || { model: 'liquid', effort: 'medium' };
+    if (WORK_MODELS.has(value.model)) opts.model = value.model;
+    if (WORK_EFFORTS.has(value.effort)) opts.effort = value.effort;
+    workOptions.set(key, opts);
+    const shell = shells.get(key);
+    if (shell && !shell.optionsDirty) shell.options = { ...opts };
+    if (typeof value.running === 'boolean') setAgent(key, value.running);
+    if (shell) publishShell(shell);
   }
   /** What Code or Work says or does (from outside the browser) for the panel of that session. */
   function say(id, item = {}) {
@@ -1022,8 +1058,8 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
   function shutdown() {
     shuttingDown = true;
     for (const shell of shells.values()) if (!shell.win.isDestroyed()) shell.win.destroy();
-    shells.clear(); tabs.clear(); sessions.clear();
+    shells.clear(); tabs.clear(); sessions.clear(); workOptions.clear();
   }
-  return { execute, work, say, reveal, state, open, focus, close, setAgent, shutdown };
+  return { execute, work, say, reveal, state, open, focus, close, setAgent, setWorkState, isToolbar: wc => Boolean(wc && toolbarRoutes.has(wc.id) && wc.getURL() === TOOLBAR_URL), shutdown };
 }
 module.exports = { createBrowserController, addressToURL };

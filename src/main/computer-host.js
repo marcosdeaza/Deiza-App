@@ -10,6 +10,7 @@ const { createDesktopController } = require('./desktop-control');
 const { COMPUTER_NAMES, COMPUTER_MUTATING, COMPUTER_TOOL_DEFINITIONS } = require('../engine/computer-tools');
 let browser, desktop, server, bridgeFile, bridgeToken;
 const requests = new Map();
+const workReplies = new Map(); // reconnects reuse the original action, including clicks and form submissions
 let quitting = false;
 const MODES = new Set(['build', 'copilot', 'plan']);
 const MAX_BODY = 512000;
@@ -178,13 +179,14 @@ function writeBridgeFile(file, data) {
     fs.renameSync(temp, file);
   } finally { if (fd !== undefined) fs.closeSync(fd); try { fs.unlinkSync(temp); } catch {} }
 }
-function init({ getOwner, stopSession, userMessage } = {}) {
+function init({ getOwner, stopSession, userMessage, micAccess, transcribe } = {}) {
   if (server || browser || desktop) shutdown();
   quitting = false;
   // The browser's Stop button ends the Code turn that drives it, not only the action in flight;
   // what you write in its Deiza panel goes to that Code session or Work chat.
   browser = createBrowserController({ getOwner, onStopAgent: (id) => { cancelSession(id); try { stopSession?.(id); } catch { /* session gone */ } },
-    onUserMessage: (id, text) => (userMessage ? userMessage(id, text) : { error: 'unavailable' }) });
+    onUserMessage: (id, text, options) => (userMessage ? userMessage(id, text, options) : { error: 'unavailable' }),
+    onMicAccess: micAccess, onTranscribe: transcribe });
   desktop = createDesktopController({ getOwner });
   bridgeToken = crypto.randomBytes(32).toString('hex');
   bridgeFile = path.join(app.getPath('userData'), 'computer-bridge.json');
@@ -203,6 +205,8 @@ function init({ getOwner, stopSession, userMessage } = {}) {
 function shutdown() {
   quitting = true;
   for (const entry of requests.values()) entry.abort.abort();
+  for (const entry of workReplies.values()) clearTimeout(entry.timer);
+  workReplies.clear();
   browser?.shutdown(); desktop?.dispose(); server?.close(); server?.closeAllConnections?.();
   if (bridgeFile) {
     try { const stat = fs.lstatSync(bridgeFile); if (stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1) { const saved = JSON.parse(fs.readFileSync(bridgeFile, 'utf8')); if (saved.pid === process.pid && saved.token === bridgeToken) fs.unlinkSync(bridgeFile); } } catch { /* already removed */ }
@@ -212,6 +216,28 @@ function shutdown() {
 // local browser v1: Deiza Work (deiza.org, in the Chat view) drives this computer's browser.
 const WORK_ACTIONS = new Set(['open', 'click', 'type', 'key', 'scroll', 'back', 'forward', 'reload', 'drag', 'click_text', 'read', 'status', 'shot', 'board_move']);
 async function work(payload = {}) {
+  if (!isRecord(payload)) return { error: 'Petición no válida.' };
+  if (!payload.requestId) return performWork(payload);
+  if (typeof payload.requestId !== 'string' || !/^[a-z0-9_-]{1,160}$/i.test(payload.requestId)) return { error: 'Operación no válida.' };
+  const chatId = Number(payload.chatId);
+  if (!Number.isSafeInteger(chatId) || chatId <= 0) return { error: 'Chat no válido.' };
+  const key = `${chatId}:${payload.requestId}`;
+  const signature = JSON.stringify([payload.action, payload.args || {}]);
+  for (const [id, entry] of workReplies) if (entry.until && entry.until < Date.now()) { clearTimeout(entry.timer); workReplies.delete(id); }
+  const existing = workReplies.get(key);
+  if (existing) return existing.signature === signature ? existing.promise : { error: 'La operación ya pertenece a otra acción.' };
+  if (workReplies.size >= 256) return { error: 'Hay demasiadas operaciones recientes. Espera un momento.' };
+  const entry = { signature, until: 0, promise: null, timer: null };
+  entry.promise = performWork(payload).finally(() => {
+    if (workReplies.get(key) !== entry) return;
+    entry.until = Date.now() + 180000;
+    entry.timer = setTimeout(() => { if (workReplies.get(key) === entry) workReplies.delete(key); }, 180000);
+    entry.timer.unref?.();
+  });
+  workReplies.set(key, entry);
+  return entry.promise;
+}
+async function performWork(payload = {}) {
   if (quitting || !browser) return { error: 'Deiza se está cerrando.' };
   if (!isRecord(payload)) return { error: 'Petición no válida.' };
   const chatId = Number(payload.chatId);
@@ -248,5 +274,7 @@ function revealWork(chatId, url) {
 
 /** Code tells the browser when a session's turn starts and ends (toolbar status and pointer). */
 function agentState(id, running) { if (validId(id)) browser?.setAgent(id, running); }
-module.exports = { init, state, execute, request, cancel, cancelSession, shutdown, agentState, work, say, revealWork,
+function workState(chatId, value) { if (Number.isSafeInteger(Number(chatId)) && Number(chatId) > 0) browser?.setWorkState(`work_${Number(chatId)}`, value); }
+module.exports = { init, state, execute, request, cancel, cancelSession, shutdown, agentState, work, say, revealWork, workState,
+  isToolbar: wc => Boolean(browser?.isToolbar(wc)),
   open: payload => browser.open(payload), focus: id => browser.focus(id), close: id => browser.close(id) };

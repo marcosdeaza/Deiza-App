@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('deizaBrowser', {
   stopAgent: call('stop-agent'),
   panel: call('panel'),
   send: (text) => ipcRenderer.invoke('computer-browser:send', String(text || '')),
+  options: call('options'),
+  micAccess: call('mic-access'),
+  transcribe: call('transcribe'),
   onState: (fn) => { ipcRenderer.on('computer-browser:state', (_e, state) => fn(state)); },
   onFocusAddress: (fn) => { ipcRenderer.on('computer-browser:focus-address', () => fn()); },
 });
