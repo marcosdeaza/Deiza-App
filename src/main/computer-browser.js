@@ -461,10 +461,8 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
   }
 
   // ── Deiza's pointer ────────────────────────────────────────────────────────
-  async function pointer(t, op, signal) {
-    if (!alive(t) || t.blank) return null;
-    if (op.kind === 'hide' && !Number.isFinite(t.pointer.x)) return null;
-    const payload = JSON.stringify({ ...op, fromX: t.pointer.x, fromY: t.pointer.y });
+  /** Runs an expression in Deiza's isolated world of the page (page scripts cannot see or change it). */
+  async function isolated(t, expression, signal) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         if (!t.pointer.ctx) {
@@ -472,18 +470,24 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
           const world = await command(t, 'Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: 'deiza-pointer', grantUniveralAccess: false }, signal);
           t.pointer.ctx = world.executionContextId;
         }
-        const out = await command(t, 'Runtime.evaluate', { expression: `(${POINTER_SOURCE})(${payload})`, contextId: t.pointer.ctx,
-          awaitPromise: true, returnByValue: true, silent: true }, signal);
-        if (out.exceptionDetails) throw new Error('pointer');
-        const value = out.result?.value || null;
-        if (value && Number.isFinite(value.x)) { t.pointer.x = value.x; t.pointer.y = value.y; }
-        return value;
+        const out = await command(t, 'Runtime.evaluate', { expression, contextId: t.pointer.ctx, awaitPromise: true, returnByValue: true, silent: true }, signal);
+        if (out.exceptionDetails) throw new Error('isolated');
+        return { value: out.result?.value ?? null };
       } catch (err) {
         if (signal?.aborted) throw err;
         t.pointer.ctx = 0;   // the document changed under the cached world: make a new one once
       }
     }
-    return null;   // the pointer is decoration: an action never fails because of it
+    return null;
+  }
+  async function pointer(t, op, signal) {
+    if (!alive(t) || t.blank) return null;
+    if (op.kind === 'hide' && !Number.isFinite(t.pointer.x)) return null;
+    const payload = JSON.stringify({ ...op, fromX: t.pointer.x, fromY: t.pointer.y });
+    const out = await isolated(t, `(${POINTER_SOURCE})(${payload})`, signal);
+    const value = out?.value || null;
+    if (value && Number.isFinite(value.x)) { t.pointer.x = value.x; t.pointer.y = value.y; }
+    return value;   // the pointer is decoration: an action never fails because of it
   }
 
   // ── reading the page ───────────────────────────────────────────────────────
@@ -720,6 +724,119 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
       return await queued(t, () => operate(t, name, args, ctx));
     } catch (err) { return { error: cleanText(err.message, 700) }; }
   }
+  // ── Work (deiza.org) on this computer ──────────────────────────────────────
+  // local browser v1: the Work agent runs on the server and sends its browser actions here; the
+  // answer has the shape of the server browser's state (JPEG capture, clickable elements in
+  // capture pixels, page text) so the agent works the same with either browser.
+  const WORK_ELEMENTS = `(() => {
+    const sel = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=tab],[role=menuitem],[role=option],[role=checkbox],[onclick]';
+    const out = [];
+    for (const el of document.querySelectorAll(sel)) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity === 0) continue;
+      const label = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('title') ||
+        el.getAttribute('placeholder') || el.getAttribute('alt') || el.name || '').trim().replace(/\\s+/g, ' ').slice(0, 60);
+      if (!label && !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) continue;
+      out.push({ t: el.tagName.toLowerCase() + (el.type ? ':' + el.type : ''), l: label,
+        x: Math.max(0, r.left) + Math.min(r.width, innerWidth) / 2, y: Math.max(0, r.top) + Math.min(r.height, innerHeight) / 2 });
+      if (out.length >= 60) break;
+    }
+    let areas = 0;
+    for (const el of document.querySelectorAll('cg-board, canvas, [class*="board"], [class*="Board"], svg')) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 200 || r.height < 200 || r.bottom < 0 || r.top > innerHeight) continue;
+      out.push({ t: 'area', l: (el.tagName.toLowerCase() + ' ' + (el.getAttribute('class') || '')).trim().slice(0, 40), x0: r.left, y0: r.top, w: r.width, h: r.height });
+      if (++areas >= 3) break;
+    }
+    return out;
+  })()`;
+  const WORK_READ = `(() => {
+    const text = (document.body ? document.body.innerText : '').replace(/\\n{3,}/g, '\\n\\n');
+    const links = [...document.querySelectorAll('a[href]')].slice(0, 400).map(a => ({ t: (a.innerText || a.title || '').trim().slice(0, 80), u: a.href }))
+      .filter(l => l.t && /^https?:/.test(l.u)).slice(0, 60);
+    const imgs = [...document.images].filter(i => i.naturalWidth >= 300 && i.naturalHeight >= 200).slice(0, 24)
+      .map(i => ({ u: i.currentSrc || i.src, alt: (i.alt || '').slice(0, 100), w: i.naturalWidth, h: i.naturalHeight })).filter(i => /^https?:/.test(i.u));
+    return { text: text.slice(0, 16000), links, imgs };
+  })()`;
+  const workFind = (text) => `((want) => {
+    want = want.trim().toLowerCase().replace(/\\s+/g, ' ');
+    const sel = 'a,button,[role=button],[role=link],[role=tab],[role=menuitem],[role=option],[role=checkbox],summary,label,input[type=submit],input[type=button]';
+    const shown = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 2 && r.height > 2 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
+    const name = (el) => (el.innerText || el.value || el.getAttribute('aria-label') || el.title || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+    const all = [...document.querySelectorAll(sel)].filter(shown);
+    let hit = null;
+    for (const test of [(n) => n === want, (n) => n.startsWith(want), (n) => n.includes(want)]) { hit = all.find(el => test(name(el))); if (hit) break; }
+    if (!hit) {
+      const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.nodeValue && n.nodeValue.trim().toLowerCase() === want && n.parentElement && shown(n.parentElement)) { hit = n.parentElement; break; }
+      }
+    }
+    if (!hit) return null;
+    hit.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+    const r = hit.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2, name: name(hit).slice(0, 60) };
+  })(${JSON.stringify(String(text || ''))})`;
+
+  async function workState(t, ctx, extra = {}) {
+    const shot = await screenshot(t, {}, { ...ctx, png: false });
+    const s = shotSize(t);
+    const els = (await isolated(t, WORK_ELEMENTS, ctx.signal))?.value || [];
+    const k = s.scale;
+    const elements = (Array.isArray(els) ? els : []).map(e => (e.t === 'area'
+      ? { ...e, x0: Math.round(e.x0 * k), y0: Math.round(e.y0 * k), w: Math.round(e.w * k), h: Math.round(e.h * k) }
+      : { ...e, x: Math.round(e.x * k), y: Math.round(e.y * k) }));
+    return { url: t.wc.getURL(), title: cleanText(t.wc.getTitle(), 200), shot: shot.data_url.split(',')[1], w: shot.width, h: shot.height, elements, ...extra };
+  }
+  async function work(action, args = {}, ctx = {}) {
+    const session = { sessionId: ctx.sessionId, signal: ctx.signal };
+    try {
+      if (ctx.signal?.aborted) throw new Error('Operación detenida');
+      if (action === 'open') {
+        let url = String(args.url || '').trim();
+        if (url && !/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `https://${url}`;
+        const opened = await execute('browser_open', { url }, session);
+        if (opened.error) return { error: opened.error };
+        const t = select({}, session);
+        return await queued(t, () => workState(t, session));
+      }
+      if (!owned(session).length) {
+        if (action === 'status' || action === 'shot') return { open: false };
+        return { error: 'No hay ninguna página abierta en el navegador. Usa browser_open primero.' };
+      }
+      const t = select({}, session);
+      return await queued(t, async () => {
+        const run = (name, a) => operate(t, name, { ...a, observe: 'none' }, session);
+        const extra = {};
+        if (action === 'click') await run('browser_click', { x: Number(args.x), y: Number(args.y), settle_ms: 220 });
+        else if (action === 'type') {
+          await run('browser_type', { text: String(args.text || ''), replace: Boolean(args.clear), settle_ms: 60 });
+          if (args.submit) await run('browser_key', { key: 'Enter', settle_ms: 700 });
+        } else if (action === 'key') await run('browser_key', { key: String(args.key || ''), settle_ms: 250 });
+        else if (action === 'scroll') await run('browser_scroll', { delta_y: Number(args.dy) || 700, settle_ms: 220 });
+        else if (action === 'drag') await run('browser_drag', { from_x: Number(args.x1), from_y: Number(args.y1), to_x: Number(args.x2), to_y: Number(args.y2), settle_ms: 300 });
+        else if (['back', 'forward', 'reload'].includes(action)) {
+          const history = t.wc.navigationHistory;
+          if ((action === 'back' && !history.canGoBack()) || (action === 'forward' && !history.canGoForward())) return { ...(await workState(t, session)), error: 'No hay página a la que ir.' };
+          await operate(t, 'browser_history', { action }, session);
+        } else if (action === 'click_text') {
+          await prepare(t, ctx.signal);
+          const hit = (await isolated(t, workFind(args.text), ctx.signal))?.value;
+          if (!hit) return { ...(await workState(t, session)), error: `No hay ningún elemento visible con el texto «${cleanText(args.text, 80)}».` };
+          const k = shotSize(t).scale;
+          await run('browser_click', { x: hit.x * k, y: hit.y * k, settle_ms: 220 });
+          extra.clicked = { x: Math.round(hit.x * k), y: Math.round(hit.y * k) };
+        } else if (action === 'read') {
+          activity(t, words().read);
+          Object.assign(extra, (await isolated(t, WORK_READ, ctx.signal))?.value || {});
+        } else if (action !== 'status' && action !== 'shot') throw new Error('Acción de navegador desconocida.');
+        return workState(t, session, extra);
+      });
+    } catch (err) { return { error: cleanText(err.message, 500) }; }
+  }
+
   function setAgent(id, running) {
     const key = String(id || '');
     if (!key) return;
@@ -751,6 +868,6 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     for (const shell of shells.values()) if (!shell.win.isDestroyed()) shell.win.destroy();
     shells.clear(); tabs.clear(); sessions.clear();
   }
-  return { execute, state, open, focus, close, setAgent, shutdown };
+  return { execute, work, state, open, focus, close, setAgent, shutdown };
 }
 module.exports = { createBrowserController, addressToURL };

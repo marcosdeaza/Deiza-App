@@ -207,7 +207,35 @@ function shutdown() {
   }
   browser = desktop = server = bridgeToken = bridgeFile = undefined;
 }
+// local browser v1: Deiza Work (deiza.org, in the Chat view) drives this computer's browser.
+const WORK_ACTIONS = new Set(['open', 'click', 'type', 'key', 'scroll', 'back', 'forward', 'reload', 'drag', 'click_text', 'read', 'status', 'shot']);
+async function work(payload = {}) {
+  if (quitting || !browser) return { error: 'Deiza se está cerrando.' };
+  if (!isRecord(payload)) return { error: 'Petición no válida.' };
+  const chatId = Number(payload.chatId);
+  const action = String(payload.action || '');
+  if (!Number.isSafeInteger(chatId) || chatId <= 0) return { error: 'Chat no válido.' };
+  if (!WORK_ACTIONS.has(action)) return { error: 'Acción de navegador no válida.' };
+  const a = isRecord(payload.args) ? payload.args : {};
+  const args = {};
+  const str = (k, max) => { if (a[k] !== undefined) { if (typeof a[k] !== 'string' || a[k].includes('\0') || a[k].length > max) throw new Error(`Argumento no válido: ${k}.`); args[k] = a[k]; } };
+  const num = (k) => { if (a[k] !== undefined) { const v = Number(a[k]); if (!Number.isFinite(v) || Math.abs(v) > 100000) throw new Error(`Argumento no válido: ${k}.`); args[k] = v; } };
+  try {
+    str('url', 2048); str('text', 20000); str('key', 24);
+    for (const k of ['x', 'y', 'x1', 'y1', 'x2', 'y2', 'dy']) num(k);
+    for (const k of ['submit', 'clear']) if (a[k] !== undefined) args[k] = Boolean(a[k]);
+  } catch (err) { return { error: err.message }; }
+  const sessionId = `work_${chatId}`;
+  const abort = new AbortController();
+  const key = `${sessionId}:work_${crypto.randomBytes(6).toString('hex')}`;
+  requests.set(key, { abort, sessionId });
+  const timer = setTimeout(() => abort.abort(), 60000);
+  timer.unref?.();
+  try { return await interruptible(browser.work(action, args, { sessionId, signal: abort.signal }), abort.signal); }
+  finally { clearTimeout(timer); requests.delete(key); }
+}
+
 /** Code tells the browser when a session's turn starts and ends (toolbar status and pointer). */
 function agentState(id, running) { if (validId(id)) browser?.setAgent(id, running); }
-module.exports = { init, state, execute, request, cancel, cancelSession, shutdown, agentState,
+module.exports = { init, state, execute, request, cancel, cancelSession, shutdown, agentState, work,
   open: payload => browser.open(payload), focus: id => browser.focus(id), close: id => browser.close(id) };

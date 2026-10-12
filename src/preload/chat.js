@@ -18,6 +18,14 @@ if (location.protocol === 'file:') {
     version,
     openCode: () => ipcRenderer.send('app:set-mode', 'code'),
     notify: (title, body) => ipcRenderer.send('chat:notify', { title: String(title || ''), body: String(body || '') }),
+    // local browser v1: Deiza Work's browser runs on this computer (full screen, Deiza's pointer)
+    workBrowser: (payload) => ipcRenderer.invoke('chat:work-browser', payload),
+    workBrowserFocus: (chatId) => ipcRenderer.invoke('chat:work-browser-focus', Number(chatId) || 0),
+    onWorkStop: (cb) => {
+      const fn = (_e, id) => { try { cb(Number(id)); } catch { /* page handler */ } };
+      ipcRenderer.on('desktop:work-stop', fn);
+      return () => ipcRenderer.removeListener('desktop:work-stop', fn);
+    },
     // App updates, so the workspace can show the same "Actualizar" button as the Code sidebar.
     update: {
       state: () => ipcRenderer.invoke('chat:update-state'),

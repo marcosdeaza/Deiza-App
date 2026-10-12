@@ -624,6 +624,11 @@ function setupIpc() {
   ipcMain.handle('computer:open', (e, payload = {}) => fromApp(e) ? computerHost.open(payload) : null);
   ipcMain.handle('computer:focus', (e, payload = {}) => fromApp(e) ? computerHost.focus(payload.id) : null);
   ipcMain.handle('computer:close', (e, payload = {}) => fromApp(e) ? computerHost.close(payload.id) : null);
+  // local browser v1: Deiza Work in the Chat view runs its browser here (main frame of deiza.org only)
+  ipcMain.handle('chat:work-browser', (e, payload) => (fromChat(e) && e.senderFrame === e.sender.mainFrame
+    ? computerHost.work(payload || {}) : { error: 'Acceso no permitido.' }));
+  ipcMain.handle('chat:work-browser-focus', (e, chatId) => (fromChat(e) && Number.isSafeInteger(Number(chatId)) && Number(chatId) > 0
+    ? computerHost.focus(`work_${Number(chatId)}`) : null));
   // Local UI
   ipcMain.handle('app:init', (e) => {
     if (!fromApp(e)) return null;
@@ -886,7 +891,11 @@ app.whenReady().then(async () => {
   setupAppSession();
   preview.register();
   codeHost.init({ origin: DEIZA_ORIGIN, auth, getLanguage: appLanguage });
-  computerHost.init({ getOwner: () => win, stopSession: (id) => codeHost.abort(id) });
+  computerHost.init({ getOwner: () => win, stopSession: (id) => {
+    // A Work job of the Chat view drives this browser: its Stop button stops that job on deiza.org.
+    if (/^work_\d+$/.test(id)) { if (chatView && !chatView.webContents.isDestroyed()) chatView.webContents.send('desktop:work-stop', Number(id.slice(5))); }
+    else codeHost.abort(id);
+  } });
   setupIpc();
   buildMenu();
   createWindow();
