@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('deiza', {
     syncNow: inv('code:sync-now'),
     attach: inv('code:attach'),
     abort: inv('code:abort'),
+    steer: inv('code:steer'),
     approve: inv('code:approve'),
     setMode: inv('code:set-mode'),
     setModel: inv('code:set-model'),

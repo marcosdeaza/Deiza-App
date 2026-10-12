@@ -277,6 +277,15 @@ body.sidebar-closed #sidebar { margin-left: calc(-1 * var(--sidebar)); }
 .msg-edit textarea { width: 100%; resize: none; border: 0; outline: none; background: transparent; color: hsl(var(--fg)); font: inherit; font-size: 13.5px; line-height: 1.5; }
 .msg-edit-row { display: flex; align-items: center; gap: 8px; }
 .msg-edit-row .hint { flex: 1; min-width: 0; font-size: 11.5px; color: hsl(var(--faint)); }
+/* written while the agent worked */
+.msg-user.steer .bubble { border-style: dashed; border-color: hsl(var(--primary) / .55); }
+.steer-note { margin-top: -3px; font-size: 11.5px; color: hsl(var(--faint)); display: flex; align-items: center; gap: 6px; }
+.steer-note::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--ochre)); }
+.steer-note.sent::before { animation: steer-wait 1.2s ease-in-out infinite; }
+.steer-note.read::before { background: hsl(var(--add-ink)); }
+.steer-note.returned::before { background: hsl(var(--muted-fg)); }
+@keyframes steer-wait { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .steer-note.sent::before { animation: none; } }
 .msg-user .imgs img { height: 84px; border-radius: 10px; border: 1px solid hsl(var(--border) / .6); object-fit: cover; }
 .msg-atts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
 .file-att { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; padding: 7px 9px; border: 1px solid hsl(var(--border) / .65); border-radius: 9px; background: hsl(var(--muted) / .5); font-size: 12px; }
@@ -580,6 +589,8 @@ body.sidebar-closed #sidebar { margin-left: calc(-1 * var(--sidebar)); }
 .send:hover:not(:disabled) { filter: brightness(1.12); }
 .send:disabled { opacity: .35; }
 .send.stop { background: hsl(var(--fg)); color: hsl(var(--bg)); }
+.send.steer-send { background: hsl(var(--primary)); margin-right: 6px; }
+.send.steer-send.hidden { display: none; }
 .hint { max-width: 744px; margin: 7px auto 0; font-size: 11.5px; color: hsl(var(--faint)); display: flex; justify-content: space-between; gap: 12px; }
 .hint kbd { font: 10.5px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid hsl(var(--border) / .6); }
 

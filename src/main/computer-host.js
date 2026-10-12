@@ -178,10 +178,11 @@ function writeBridgeFile(file, data) {
     fs.renameSync(temp, file);
   } finally { if (fd !== undefined) fs.closeSync(fd); try { fs.unlinkSync(temp); } catch {} }
 }
-function init({ getOwner } = {}) {
+function init({ getOwner, stopSession } = {}) {
   if (server || browser || desktop) shutdown();
   quitting = false;
-  browser = createBrowserController({ getOwner });
+  // The browser's Stop button ends the Code turn that drives it, not only the action in flight.
+  browser = createBrowserController({ getOwner, onStopAgent: (id) => { cancelSession(id); try { stopSession?.(id); } catch { /* session gone */ } } });
   desktop = createDesktopController({ getOwner });
   bridgeToken = crypto.randomBytes(32).toString('hex');
   bridgeFile = path.join(app.getPath('userData'), 'computer-bridge.json');
@@ -206,5 +207,7 @@ function shutdown() {
   }
   browser = desktop = server = bridgeToken = bridgeFile = undefined;
 }
-module.exports = { init, state, execute, request, cancel, cancelSession, shutdown,
+/** Code tells the browser when a session's turn starts and ends (toolbar status and pointer). */
+function agentState(id, running) { if (validId(id)) browser?.setAgent(id, running); }
+module.exports = { init, state, execute, request, cancel, cancelSession, shutdown, agentState,
   open: payload => browser.open(payload), focus: id => browser.focus(id), close: id => browser.close(id) };

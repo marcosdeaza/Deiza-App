@@ -886,7 +886,7 @@ app.whenReady().then(async () => {
   setupAppSession();
   preview.register();
   codeHost.init({ origin: DEIZA_ORIGIN, auth, getLanguage: appLanguage });
-  computerHost.init({ getOwner: () => win });
+  computerHost.init({ getOwner: () => win, stopSession: (id) => codeHost.abort(id) });
   setupIpc();
   buildMenu();
   createWindow();

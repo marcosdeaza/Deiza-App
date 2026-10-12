@@ -190,6 +190,7 @@ function emit(id, ev) {
     const r = running.get(id);
     if (r && r.abortTimer) clearTimeout(r.abortTimer);
     running.delete(id);
+    computerHost.agentState(id, false);
     doc.updatedAt = now();
     saveNow(id);
     broadcastList();
@@ -215,6 +216,23 @@ function onWorkerEvent(id, ev) {
     return;
   }
   if (ev.t === 'computer_cancel') { computerHost.cancel(id, ev.requestId); return; }
+  if (ev.t === 'steer_read') {
+    const r = running.get(id);
+    for (const sid of ev.ids || []) r?.steers?.delete(sid);
+    emit(id, ev);
+    return;
+  }
+  if (ev.t === 'steer_unread') {
+    const r = running.get(id);
+    if (r) r.unread = [...(r.unread || []), ...(ev.ids || [])];
+    return;
+  }
+  if (ev.t === 'turn_end') {
+    const r = running.get(id);
+    emit(id, ev);
+    if (r) followUp(id, r, ev);
+    return;
+  }
   if (ev.t === 'history') { doc.messages = ev.messages; scheduleSave(id); return; }
   if (ev.t === 'context') { doc.context = { used: ev.used, limit: ev.limit, model: ev.model, estimated: Boolean(ev.estimated) }; }
   if (ev.t === 'quota') { ctx?.send('code:event', { id, seq: 0, ev }); return; }
@@ -349,10 +367,13 @@ async function send({ id, text, images, attachments = [], mode, model, effort },
   const turnId = `turn_${uid()}`;
   const hist = doc.messages.length;
   // The id travels in the event so the window and the saved session share it (edit/retry find it by id).
-  emit(id, { t: 'user', id: `u_${uid()}`, text: input, images: att.paths, attachments: selected.map(({ id, name, path, kind, size }) => ({ id, name, path, kind, size })), turnId, hist });
+  // Messages written during the previous turn already have their bubbles: they only get marked as read.
+  if (Array.isArray(reuse.itemIds) && reuse.itemIds.length) emit(id, { t: 'steer_read', ids: reuse.itemIds });
+  else emit(id, { t: 'user', id: `u_${uid()}`, text: input, images: att.paths, attachments: selected.map(({ id, name, path, kind, size }) => ({ id, name, path, kind, size })), turnId, hist });
   const note = doc.pendingNote;
   doc.pendingNote = '';
   running.set(id, { turnId, startedAt: now() });
+  computerHost.agentState(id, true);
   doc.updatedAt = now();
   saveNow(id);
   broadcastList();
@@ -379,6 +400,44 @@ async function send({ id, text, images, attachments = [], mode, model, effort },
     emit(id, { t: 'turn_end', turnId, stopReason: 'error', elapsedMs: 0, stats: {}, revertible: false });
   }
   return { ok: true, turnId };
+}
+
+// ── messages sent while a turn runs ───────────────────────────────────────────
+
+/** The user writes while Deiza works: the message goes into the running turn and is read at its next step. */
+function steer({ id, text } = {}) {
+  const doc = loadDoc(id);
+  if (!doc) return { error: 'not_found' };
+  const input = String(text || '').trim().slice(0, 20000);
+  if (!input) return { error: 'empty' };
+  const r = running.get(id);
+  const w = workers.get(id);
+  if (!r || r.aborting || !w || !w.alive) return { error: 'idle' };
+  const itemId = `u_${uid()}`;
+  if (!r.steers) r.steers = new Map();
+  r.steers.set(itemId, input);
+  emit(id, { t: 'user', id: itemId, text: input, images: [], attachments: [], turnId: r.turnId, steer: true });
+  w.proc.postMessage({ type: 'steer', id: itemId, text: input });
+  return { ok: true, id: itemId };
+}
+
+/** Messages the turn never got to read: a new turn answers them, unless the user stopped it. */
+function followUp(id, r, ev) {
+  const ids = [...new Set([...(r.unread || []), ...(r.steers ? r.steers.keys() : [])])];
+  const texts = ids.map(sid => r.steers?.get(sid)).filter(Boolean);
+  if (!texts.length) return;
+  if (ev.stopReason === 'aborted' || r.aborting) {
+    emit(id, { t: 'steer_returned', ids, text: texts.join('\n\n') });
+    return;
+  }
+  setTimeout(() => {
+    if (running.has(id)) return;
+    const doc = loadDoc(id);
+    if (!doc) return;
+    send({ id, text: texts.join('\n\n'), images: [], attachments: [], mode: doc.mode, model: doc.model, effort: doc.effort }, { itemIds: ids })
+      .then((res) => { if (res && res.error) emit(id, { t: 'steer_returned', ids, text: texts.join('\n\n') }); })
+      .catch(() => emit(id, { t: 'steer_returned', ids, text: texts.join('\n\n') }));
+  }, 250);
 }
 
 // ── edit / retry of a user message ────────────────────────────────────────────
@@ -469,7 +528,8 @@ async function rewind({ id, itemId, turnId, text, mode, model, effort } = {}) {
 
 function abort(id) {
   const r = running.get(id);
-  if (!r) return;
+  // Nothing runs here any more (the turn ended a moment ago): the window must not stay "stopping".
+  if (!r) return { ok: true, idle: true };
   r.aborting = true;
   computerHost.cancelSession(id);
   const w = workers.get(id);
@@ -844,7 +904,8 @@ function setupIpc(c) {
     if (payload.id && !loadDoc(payload.id)) return { attachments: [], errors: ['La sesión ya no existe.'] };
     return attachmentStore.attach(payload);
   });
-  handle('code:abort', (id) => { abort(id); return true; });
+  handle('code:abort', (id) => abort(id) || { ok: true });
+  handle('code:steer', (payload) => steer(payload || {}));
   handle('code:approve', ({ id, approvalId, approved, always } = {}) => {
     const w = workers.get(id);
     if (w && w.alive) w.proc.postMessage({ type: 'approval', id: approvalId, approved, always });
@@ -993,4 +1054,4 @@ function setPref(key, value) {
   else if (key === 'defaultEffort' && EFFORTS.includes(value)) prefs.set('defaultEffort', value);
 }
 
-module.exports = { init, setupIpc, shutdown, invalidateSkills, setPref, isBusy: () => running.size > 0 };
+module.exports = { init, setupIpc, shutdown, invalidateSkills, setPref, abort, isBusy: () => running.size > 0 };

@@ -823,7 +823,7 @@ const VERBS = {
   browser_drag: 'Arrastrar', desktop_drag: 'Arrastrar', desktop_mouse_move: 'Mover puntero',
   invoke_subagent: 'Subagente', view_image: 'Imagen', update_plan: 'Plan',
   browser_open: 'Abrir navegador', browser_tabs: 'Ver pestañas', browser_snapshot: 'Leer página',
-  browser_screenshot: 'Capturar página', browser_click: 'Clicar', browser_type: 'Escribir',
+  browser_screenshot: 'Capturar página', browser_click: 'Clicar', browser_type: 'Escribir', browser_hover: 'Señalar', browser_history: 'Historial',
   browser_key: 'Pulsar tecla', browser_scroll: 'Desplazar página', browser_close: 'Cerrar pestaña',
   desktop_screenshot: 'Capturar pantalla', desktop_apps: 'Ver aplicaciones', desktop_focus: 'Abrir aplicación',
   desktop_click: 'Clicar', desktop_type: 'Escribir', desktop_key: 'Pulsar tecla', desktop_scroll: 'Desplazar',
@@ -854,6 +854,11 @@ function renderItem(it) {
       if (it.attachments && it.attachments.length) box.append(h('div', { class: 'msg-atts' }, it.attachments.map(a =>
         h('span', { class: 'file-att', title: a.name }, icon(a.kind === 'folder' ? 'folder' : a.kind === 'image' ? 'image' : 'file'), h('span', { text: a.name })))));
       if (it.text) box.append(h('div', { class: 'bubble', text: it.text }));
+      if (it.steer) {
+        box.classList.add('steer');
+        const label = it.steer === 'read' ? T('Leído mientras trabajaba') : it.steer === 'returned' ? T('Sin leer: lo tienes en la caja de escribir') : T('Se leerá en el siguiente paso');
+        box.append(h('div', { class: `steer-note ${it.steer}`, text: label }));
+      }
       box.append(userActions(it, box));
       return box;
     }
@@ -888,6 +893,7 @@ function userActions(it, box) {
     const copy = h('button', { class: 'ua-btn', title: T('Copiar'), 'aria-label': T('Copiar'), onclick: () => { navigator.clipboard.writeText(it.text); flashDone(copy); } }, icon('copy'));
     row.append(copy);
   }
+  if (it.steer) return row;
   row.append(
     h('button', { class: 'ua-btn idle-only', title: T('Editar'), 'aria-label': T('Editar'), onclick: () => editUserMessage(it, box) }, icon('edit')),
     h('button', { class: 'ua-btn idle-only', title: T('Reintentar'), 'aria-label': T('Reintentar'), onclick: () => rewindTo(it, it.text) }, icon('refresh')));
@@ -1545,7 +1551,7 @@ function renderComposer(hero) {
   const mode = S.cur ? S.cur.mode : S.defaultMode;
   const ta = h('textarea', {
     rows: '1', spellcheck: 'true',
-    placeholder: hero ? T('Describe lo que quieres construir o arreglar…') : (running ? T('Escribe el siguiente paso; se enviará cuando termine…') : T('Pide un cambio, un arreglo o una app entera…')),
+    placeholder: hero ? T('Describe lo que quieres construir o arreglar…') : (running ? T('Escribe mientras trabaja: lo leerá en el siguiente paso…') : T('Pide un cambio, un arreglo o una app entera…')),
   });
   const draftKey = S.cur ? S.cur.id : (S.pendingFolder ? `_pending:${S.pendingFolder}` : '_new');
   let initDraft = S.drafts.get(draftKey);
@@ -1562,7 +1568,7 @@ function renderComposer(hero) {
   const fit = () => { ta.style.height = 'auto'; ta.style.height = `${Math.min(280, ta.scrollHeight)}px`; };
   ta.addEventListener('input', () => {
     fit();
-    sendBtn.disabled = sending || S.attachmentPending > 0 || !canSend();
+    box._refresh();
     const k = S.cur ? S.cur.id : (S.pendingFolder ? `_pending:${S.pendingFolder}` : '_new');
     S.drafts.set(k, ta.value);
     S.drafts.set('_active_input', ta.value);
@@ -1647,16 +1653,38 @@ function renderComposer(hero) {
 
   let sending = false;
   const canSend = () => Boolean(ta.value.trim() || S.images.length || S.attachments.length);
+  // While Deiza works the round button is always Stop (never greyed out); a separate arrow sends
+  // what you write into the running task.
   const sendBtn = h('button', { class: `send${running ? ' stop' : ''}`, title: running ? T('Detener (Esc)') : T('Enviar (Intro)') }, icon(running ? 'stop' : 'send'));
   sendBtn.disabled = !running && (S.attachmentPending > 0 || !canSend());
   sendBtn.onclick = () => (S.cur && S.cur.running ? stopRun() : submit());
+  const steerBtn = h('button', { class: 'send steer-send hidden', title: T('Enviar ahora: lo leerá mientras trabaja (Intro)'), 'aria-label': T('Enviar mientras trabaja') }, icon('send'));
+  steerBtn.onclick = () => submit();
+
+  const steerNow = async (text) => {
+    if (S.images.length || S.attachments.length) toast(T('Los adjuntos se envían cuando termine; el texto lo lee ya.'), 3600);
+    sending = true;
+    try {
+      const result = await deiza.code.steer({ id: S.cur.id, text });
+      if (result && result.error === 'idle') { S.cur.running = false; sending = false; await submit(); return; }
+      if (!result || result.error) { toast(T('No se pudo enviar')); return; }
+      ta.value = '';
+      fit();
+      S.drafts.delete(S.cur.id);
+      S.drafts.delete('_active_input');
+      try { localStorage.removeItem('deiza:code:draft'); } catch {}
+      stick = true;
+      scrollToBottom(true);
+    } catch { toast(T('No se pudo enviar')); }
+    finally { sending = false; box._refresh(); }
+  };
 
   const submit = async () => {
     const text = ta.value.trim();
     if (sending || S.attachmentPending || (!text && !S.images.length && !S.attachments.length)) return;
     if (S.cur && S.cur.running) {
-      toast(T('Espera a que termine o detén la petición actual'));
-      return;
+      if (!text) { toast(T('Escribe el mensaje; los adjuntos se envían cuando termine.')); return; }
+      return steerNow(text);
     }
     const images = S.images.slice();
     const attachments = S.attachments.slice();
@@ -1729,11 +1757,11 @@ function renderComposer(hero) {
     if (dict && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); dict.finish(true); return; }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      if (!(S.cur && S.cur.running)) submit();
+      submit();
     }
   });
 
-  box.append(h('div', { class: 'bar' }, imgBtn, micCombo, browserBtn, picker, modes, h('div', { class: 'grow' }), renderModelPill(), folderBtn, sendBtn));
+  box.append(h('div', { class: 'bar' }, imgBtn, micCombo, browserBtn, picker, modes, h('div', { class: 'grow' }), renderModelPill(), folderBtn, steerBtn, sendBtn));
   const hint = h('div', { class: 'hint' },
     h('span', { html: T('<kbd>Intro</kbd> enviar · <kbd>Mayús</kbd>+<kbd>Intro</kbd> salto de línea · <kbd>Esc</kbd> detener') }),
     h('div', { class: 'grow' }), ctxMeter());
@@ -1742,11 +1770,18 @@ function renderComposer(hero) {
   box._attachments = renderAtts;
   box._refresh = () => {
     const run = Boolean(S.cur && S.cur.running);
-    sendBtn.className = `send${run ? ' stop' : ''}`;
-    sendBtn.innerHTML = '';
-    sendBtn.append(icon(run ? 'stop' : 'send'));
-    sendBtn.title = run ? T('Detener (Esc)') : T('Enviar (Intro)');
+    const wasRun = sendBtn.classList.contains('stop');
+    if (run !== wasRun || !sendBtn.firstChild) {
+      sendBtn.className = `send${run ? ' stop' : ''}`;
+      sendBtn.innerHTML = '';
+      sendBtn.append(icon(run ? 'stop' : 'send'));
+      sendBtn.title = run ? T('Detener (Esc)') : T('Enviar (Intro)');
+      ta.placeholder = hero ? T('Describe lo que quieres construir o arreglar…') : (run ? T('Escribe mientras trabaja: lo leerá en el siguiente paso…') : T('Pide un cambio, un arreglo o una app entera…'));
+    }
+    // Stop is never disabled: a run can always be stopped, whatever the text box holds.
     sendBtn.disabled = !run && (sending || S.attachmentPending > 0 || !canSend());
+    steerBtn.classList.toggle('hidden', !run || !ta.value.trim());
+    steerBtn.disabled = sending;
   };
   box._changed = () => { fit(); box._refresh(); };
   if (dict) dict.attach(box);
@@ -2451,10 +2486,20 @@ function syncThreadState() {
 
 function stopRun() {
   if (!S.cur || !S.cur.running) return;
-  deiza.code.abort(S.cur.id);
+  const id = S.cur.id;
   capuReact('halt');
   S.status = { kind: 'thinking', text: 'Deteniendo', since: Date.now() };
   renderStatus();
+  Promise.resolve(deiza.code.abort(id)).then((res) => {
+    // The turn had already ended (its last event was lost or still in flight): unlock the window.
+    if (res && res.idle && S.cur && S.cur.id === id && S.cur.running) {
+      setTimeout(() => {
+        if (!S.cur || S.cur.id !== id || !S.cur.running) return;
+        S.cur.running = false; S.status = null;
+        renderStatus(); refreshComposerState(); syncThreadState();
+      }, 600);
+    }
+  }).catch(() => {});
 }
 
 async function handleDroppedPath(p) {
@@ -2745,6 +2790,11 @@ function onCodeEvent({ id, seq, ev }) {
     return;
   }
   upsert(changed);
+  if (ev.t === 'steer_returned' && ev.text) {
+    // Stopped before reading it: the message goes back to the text box, ready to send again.
+    const input = $('#composer-wrap textarea');
+    if (input && !input.value.trim()) { input.value = ev.text; input.dispatchEvent(new Event('input')); }
+  }
   if (ev.t === 'tool_start' && ev.name === 'run_command') { S.openTools.add(ev.id); upsert(changed); }
   if (ev.t === 'tool_end' && changed && changed.name === 'run_command' && changed.status === 'ok') { S.openTools.delete(ev.id); upsert(changed); }
   if (ev.t === 'tool_end' && S.panel.open) {

@@ -54,8 +54,17 @@
         closeText(items);
         const it = { k: 'user', id: ev.id || uid('u'), text: ev.text || '', images: ev.images || [], attachments: ev.attachments || [], at: ev.at || Date.now(), turnId: ev.turnId };
         if (Number.isInteger(ev.hist)) it.hist = ev.hist;
+        // Written while the agent was working: shown at once, read by the agent at its next step.
+        if (ev.steer) it.steer = 'sent';
         items.push(it);
         return it;
+      }
+      case 'steer_read':
+      case 'steer_returned': {
+        const ids = new Set(ev.ids || []);
+        let last = null;
+        for (const it of items) if (it.k === 'user' && ids.has(it.id)) { it.steer = ev.t === 'steer_read' ? 'read' : 'returned'; last = it; }
+        return last;
       }
       case 'reasoning': {
         const last = items[items.length - 1];

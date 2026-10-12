@@ -17,7 +17,7 @@ const tool = (name, description, properties = {}, required = []) => ({
 });
 
 const COMPUTER_TOOL_DEFINITIONS = [
-  tool('browser_open', 'Open an http(s) page in the visible Deiza Code browser and read its current snapshot. Login is manual; the isolated browser keeps the user session. Opening a page is allowed in Plan mode for reading.', {
+  tool('browser_open', 'Open an http(s) page in the Deiza Code browser and read its current snapshot. The browser is a window that covers the user\'s screen (same shape as the screen) and shows your pointer on every action, so the user watches you work. Login is manual; the isolated browser keeps the user session. Opening a page is allowed in Plan mode for reading.', {
     url: { type: 'string', description: 'Full http(s) URL; localhost is supported for testing your apps.' },
     tab_id: tab,
     new_tab: { type: 'boolean', description: 'Create a new tab instead of navigating the active one (default false).' },
@@ -27,17 +27,27 @@ const COMPUTER_TOOL_DEFINITIONS = [
     tab_id: tab,
     max_chars: { type: 'integer', minimum: 1000, maximum: 40000, description: 'Maximum visible text characters (default 20000).' },
   }),
-  tool('browser_screenshot', 'Look at a PNG capture of the browser viewport as an image. Requires Solid or Liquid. Useful to verify layout and inspect controls missing from the text snapshot.', { tab_id: tab, path: imagePath }),
+  tool('browser_screenshot', 'Look at a capture of the whole browser viewport as an image (wide, like the user\'s screen; width/height in the result). Your own pointer is never in the image. Requires Solid or Liquid. Useful to verify layout, canvas/boards and controls missing from the text snapshot. x/y for browser_click, browser_hover, browser_drag and browser_scroll are pixels of this image.', { tab_id: tab, path: imagePath }),
   tool('browser_click', 'Click an element from the latest snapshot, or a point from a recent screenshot. Prefer element_id. Returns a fresh snapshot after the action. Stay within the user request; sending, purchasing, deleting or submitting externally requires explicit user authorization.', {
     tab_id: tab, element_id: element,
-    x: { type: 'number', description: 'Browser viewport x in CSS pixels, when element_id is unavailable.' },
-    y: { type: 'number', description: 'Browser viewport y in CSS pixels, when element_id is unavailable.' },
+    x: { type: 'number', description: 'x in pixels of the latest browser_screenshot, when element_id is unavailable.' },
+    y: { type: 'number', description: 'y in pixels of the latest browser_screenshot, when element_id is unavailable.' },
     button, click_count: count, modifiers, observe: observeBrowser, settle_ms: settle,
   }),
-  tool('browser_drag', 'Drag with the mouse inside the browser viewport from one point to another (CSS pixels from the latest browser_screenshot), e.g. moving a chess piece or a slider. Returns what observe asks for (default screenshot).', {
+  tool('browser_hover', 'Move your pointer over an element or a point without clicking: opens hover menus and tooltips. Returns what observe asks for (default snapshot).', {
+    tab_id: tab, element_id: element,
+    x: { type: 'number', description: 'x in pixels of the latest browser_screenshot, when element_id is unavailable.' },
+    y: { type: 'number', description: 'y in pixels of the latest browser_screenshot, when element_id is unavailable.' },
+    observe: observeBrowser, settle_ms: settle,
+  }),
+  tool('browser_history', 'Go back, forward or reload the current tab and read the resulting page.', {
     tab_id: tab,
-    from_x: { type: 'number', description: 'Start x in CSS pixels.' }, from_y: { type: 'number', description: 'Start y in CSS pixels.' },
-    to_x: { type: 'number', description: 'End x in CSS pixels.' }, to_y: { type: 'number', description: 'End y in CSS pixels.' },
+    action: { type: 'string', enum: ['back', 'forward', 'reload'], description: 'back, forward or reload.' },
+  }, ['action']),
+  tool('browser_drag', 'Drag with the mouse inside the browser from one point to another (pixels of the latest browser_screenshot), e.g. moving a chess piece or a slider. Returns what observe asks for (default screenshot).', {
+    tab_id: tab,
+    from_x: { type: 'number', description: 'Start x in screenshot pixels.' }, from_y: { type: 'number', description: 'Start y in screenshot pixels.' },
+    to_x: { type: 'number', description: 'End x in screenshot pixels.' }, to_y: { type: 'number', description: 'End y in screenshot pixels.' },
     observe: observeBrowser, settle_ms: settle,
   }, ['from_x', 'from_y', 'to_x', 'to_y']),
   tool('browser_type', 'Insert text in a field from the latest snapshot or the focused field. Returns a fresh snapshot. Does not press Enter or submit; use browser_key explicitly when authorized.', {
@@ -46,10 +56,12 @@ const COMPUTER_TOOL_DEFINITIONS = [
     observe: observeBrowser, settle_ms: settle,
   }, ['text']),
   tool('browser_key', 'Press a browser key or shortcut. Read the current snapshot first; Enter may submit a form. Returns a fresh snapshot.', { tab_id: tab, element_id: element, key, modifiers, observe: observeBrowser, settle_ms: settle }, ['key']),
-  tool('browser_scroll', 'Scroll the browser viewport and return a fresh snapshot. Positive delta_y scrolls down; negative scrolls up.', {
+  tool('browser_scroll', 'Scroll the browser viewport and return a fresh snapshot. Positive delta_y scrolls down; negative scrolls up. Scrolls the area under x/y (default the centre of the page).', {
     tab_id: tab,
     delta_y: { type: 'number', description: 'Vertical scroll in CSS pixels.' },
     delta_x: { type: 'number', description: 'Horizontal scroll in CSS pixels (default 0).' },
+    x: { type: 'number', description: 'Optional point to scroll at, in screenshot pixels (e.g. a side panel or a list).' },
+    y: { type: 'number', description: 'Optional point to scroll at, in screenshot pixels.' },
     observe: observeBrowser, settle_ms: settle,
   }, ['delta_y']),
   tool('browser_close', 'Close a browser tab belonging to this Code session.', { tab_id: tab }),
@@ -96,7 +108,7 @@ const COMPUTER_TOOL_DEFINITIONS = [
 ];
 
 const COMPUTER_NAMES = new Set(COMPUTER_TOOL_DEFINITIONS.map(t => t.name));
-const COMPUTER_MUTATING = new Set(['browser_click', 'browser_drag', 'browser_type', 'browser_key', 'browser_scroll', 'browser_close', 'desktop_focus', 'desktop_click', 'desktop_drag', 'desktop_mouse_move', 'desktop_type', 'desktop_key', 'desktop_scroll']);
+const COMPUTER_MUTATING = new Set(['browser_click', 'browser_hover', 'browser_drag', 'browser_type', 'browser_key', 'browser_scroll', 'browser_close', 'desktop_focus', 'desktop_click', 'desktop_drag', 'desktop_mouse_move', 'desktop_type', 'desktop_key', 'desktop_scroll']);
 const COMPUTER_VISUAL = new Set(['browser_screenshot', 'browser_drag', 'desktop_screenshot', 'desktop_click', 'desktop_drag', 'desktop_mouse_move', 'desktop_type', 'desktop_key', 'desktop_scroll']);
 const COMPUTER_TOOL_SPECS = COMPUTER_TOOL_DEFINITIONS.map(t => ({ type: 'function', function: t }));
 
@@ -111,7 +123,8 @@ function safeUrl(value) {
 function computerTarget(name, args = {}) {
   if (name === 'browser_open') return safeUrl(args.url);
   if (name === 'browser_type' || name === 'desktop_type') return `Escribir · ${String(args.text || '').length} caracteres`;
-  if (name === 'browser_click') return args.element_id ? `Elemento ${String(args.element_id).slice(0, 80)}` : `Punto ${args.x}, ${args.y}`;
+  if (name === 'browser_click' || name === 'browser_hover') return args.element_id ? `Elemento ${String(args.element_id).slice(0, 80)}` : `Punto ${args.x}, ${args.y}`;
+  if (name === 'browser_history') return { back: 'Atrás', forward: 'Adelante', reload: 'Recargar' }[args.action] || 'Historial';
   if (name === 'desktop_click' || name === 'desktop_mouse_move') return `Punto ${args.x}, ${args.y}`;
   if (name === 'desktop_drag' || name === 'browser_drag') return `Arrastrar ${args.from_x}, ${args.from_y} → ${args.to_x}, ${args.to_y}`;
   if (name === 'browser_key' || name === 'desktop_key') return `Tecla ${String(args.key || '').slice(0, 80)}`;
@@ -138,7 +151,7 @@ function describeComputerResult(name, res = {}, args = {}) {
   if (name === 'browser_tabs') return { status: 'ok', summary: `${Array.isArray(res.tabs) ? res.tabs.length : 0} pestañas` };
   if (name === 'desktop_apps') return { status: 'ok', summary: `${Array.isArray(res.apps) ? res.apps.length : 0} aplicaciones` };
   const summaries = {
-    browser_open: 'Página abierta', browser_snapshot: 'Página leída', browser_click: 'Clic realizado', browser_drag: 'Arrastre realizado', desktop_drag: 'Arrastre realizado',
+    browser_open: 'Página abierta', browser_snapshot: 'Página leída', browser_click: 'Clic realizado', browser_hover: 'Puntero encima', browser_history: 'Página cargada', browser_drag: 'Arrastre realizado', desktop_drag: 'Arrastre realizado',
     browser_type: 'Texto introducido', browser_key: 'Tecla pulsada', browser_scroll: 'Página desplazada', browser_close: 'Pestaña cerrada',
     desktop_focus: 'Aplicación enfocada', desktop_click: 'Clic realizado', desktop_mouse_move: 'Puntero movido',
     desktop_type: 'Texto introducido', desktop_key: 'Tecla pulsada', desktop_scroll: 'Vista desplazada',

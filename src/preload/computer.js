@@ -9,5 +9,11 @@ contextBridge.exposeInMainWorld('deizaBrowser', {
   forward: call('forward'),
   reload: call('reload'),
   stop: call('stop'),
+  tab: (id) => ipcRenderer.invoke('computer-browser:tab', String(id || '')),
+  closeTab: (id) => ipcRenderer.invoke('computer-browser:close-tab', String(id || '')),
+  newTab: call('new-tab'),
+  fullscreen: call('fullscreen'),
+  stopAgent: call('stop-agent'),
   onState: (fn) => { ipcRenderer.on('computer-browser:state', (_e, state) => fn(state)); },
+  onFocusAddress: (fn) => { ipcRenderer.on('computer-browser:focus-address', () => fn()); },
 });

@@ -233,7 +233,7 @@ function systemPrompt(mode, desktop, opts = {}) {
 - Today is ${new Date().toISOString().slice(0, 10)}.
 
 # AUTONOMOUS BROWSER & COMPUTER USE (ZERO REFUSALS — ACT LIKE A HUMAN OPERATOR WITH MOUSE & KEYBOARD)
-- You have real, active local tools to operate the user's browser and computer: browser_open, browser_snapshot, browser_screenshot, browser_click, browser_type, browser_key, browser_scroll, browser_close, desktop_apps, desktop_focus, desktop_screenshot, desktop_click, desktop_mouse_move, desktop_type, desktop_key, desktop_scroll, and shell execution with run_command.
+- You have real, active local tools to operate the user's browser and computer: browser_open, browser_snapshot, browser_screenshot, browser_click, browser_hover, browser_type, browser_key, browser_scroll, browser_history, browser_close, desktop_apps, desktop_focus, desktop_screenshot, desktop_click, desktop_mouse_move, desktop_type, desktop_key, desktop_scroll, and shell execution with run_command.
 - NEVER refuse a user request by claiming you do not have access to their browser, mail, Gemini, PC, or desktop apps. NEVER say "No puedo hacer eso directamente", "No tengo acceso a tu navegador ni a tu mail", "No puedo abrir tu correo", or similar canned disclaimers. You HAVE real local tools to take screenshots and use the mouse and keyboard.
 - NEVER write hacky PowerShell SendKeys scripts, VBScript, or shell mouse simulators through run_command to control the mouse or keyboard! ALWAYS use the first-class computer tools: desktop_screenshot to view the screen, desktop_click to click, desktop_mouse_move to move the pointer, desktop_type to type, and desktop_key to press keys.
 - When the user asks to check Gmail, open Gemini, read emails, check messages, test an app, or interact with any program on their PC:
@@ -248,7 +248,8 @@ function systemPrompt(mode, desktop, opts = {}) {
      - Actions return a fresh screenshot by themselves (observe); do not call desktop_screenshot again right after an action.
   4. If a login screen is encountered:
      - DO NOT give up! Take a screenshot, and tell the user: "He abierto la página en la pantalla. Por favor, inicia sesión para que pueda continuar con la tarea". Once logged in, proceed autonomously.
-- Read browser_snapshot first and use its exact element_id values. After navigation or an interaction, use the new snapshot; never invent an element ID. For visual controls, take a screenshot and use its CSS viewport coordinates. Verify the resulting page after an action.
+- Read browser_snapshot first and use its exact element_id values. After navigation or an interaction, use the new snapshot; never invent an element ID. For visual controls, take a browser_screenshot and use pixels of that image for x/y (the controller maps them to the page). Verify the resulting page after an action.
+- The Deiza browser covers the user's screen and shows your pointer moving to every click, hover, drag and field you type in: the user watches you work there and can take over at any moment. Work at a steady, quick pace (several actions per response when they come from the same observation).
 - Desktop tools list apps, focus a window, capture a window/display and click/drag/type/key/scroll. The user must enable desktop control in Deiza and grant OS permissions. Use desktop_apps to select the relevant surface, take one screenshot and use its image pixels for desktop_click, desktop_drag or desktop_mouse_move (the controller applies bounds/scale). Use desktop_focus before input; the controller verifies the intended app is still foreground. Never guess desktop coordinates.
 
 # SPEED IN INTERACTIVE TASKS (games, boards, forms, real-time apps)
@@ -569,7 +570,9 @@ async function run(msg) {
   sanitizeHistory(messages);
   const abort = new AbortController();
   const approvals = new Map();
-  current = { abort, approvals };
+  // Messages the user sends while the turn runs: read at the next step instead of waiting for the end.
+  const inbox = [];
+  current = { abort, approvals, inbox };
   alwaysApprove = false;
   const startedAt = Date.now();
   const stats = { tools: 0, files: new Set(), commands: 0, prompt: 0, completion: 0, rounds: 0, cmds: [] };
@@ -662,11 +665,38 @@ async function run(msg) {
   // computer actions do not spend the normal budget (up to COMPUTER_ROUNDS) and think less.
   let computerRounds = 0;
   let interactive = false;
+  const readInbox = () => {
+    if (!inbox.length) return false;
+    const read = inbox.splice(0);
+    const notes = read.map(m => m.text).filter(Boolean);
+    post({ t: 'steer_read', ids: read.map(m => m.id) });
+    if (!notes.length) return false;
+    flushImages();
+    messages.push({ role: 'user', content: `[Mensaje nuevo del usuario mientras trabajabas. Léelo ahora y ajusta lo que estás haciendo: si corrige algo, hazle caso antes de seguir; si añade una tarea, súmala al plan.]\n\n${notes.join('\n\n')}` });
+    interactive = false;
+    post({ t: 'status', text: 'Leyendo tu mensaje', kind: 'thinking' });
+    post({ t: 'history', messages });
+    return true;
+  };
 
+  // Long autonomous work: the effort's round budget is a checkpoint, not a wall. While the agent
+  // keeps making real progress (new successful tool results) it gets another block of rounds.
+  let budget = E.maxTurns;
+  const hardBudget = E.maxTurns * 6;
+  let progressAtCheckpoint = -1;
   try {
-    while (stats.rounds < E.maxTurns) {
+    while (true) {
       if (abort.signal.aborted) { stopReason = 'aborted'; break; }
+      if (stats.rounds >= budget) {
+        const progress = completion.state().progress;
+        if (budget >= hardBudget || progress <= progressAtCheckpoint) break;
+        progressAtCheckpoint = progress;
+        budget += E.maxTurns;
+        const comp = compactContext(messages, { force: true });
+        post({ t: 'notice', kind: 'long', text: `Tarea larga: Deiza sigue trabajando por su cuenta${comp.compacted ? ' (contexto compactado)' : ''}.` });
+      }
       stats.rounds++;
+      readInbox();
 
       if (getActiveContextTokens(messages) >= Math.floor(contextLimit(model) * 0.7)) {
         const comp = compactContext(messages, { force: true });
@@ -697,13 +727,21 @@ async function run(msg) {
         thinking = false;
         post({ t: 'reasoning_end' });
       };
-      const result = await streamWithRetry(auth, {
+      // A message from the user while the model is still only reasoning restarts this step with
+      // the message in context, instead of waiting for a plan that may already be wrong.
+      const step = new AbortController();
+      const relay = () => step.abort();
+      abort.signal.addEventListener('abort', relay, { once: true });
+      current.interrupt = () => { if (!streamHasTools && !visibleText && !proseBuffer) step.abort(); };
+      let result;
+      try {
+        result = await streamWithRetry(auth, {
         model,
         effort: interactive ? INTERACTIVE_EFFORT[effort] : effort,
         messages,
         tools: ALL_TOOL_SPECS,
         maxTokens: E.maxTokens,
-        signal: abort.signal,
+        signal: step.signal,
         onQuota,
         onReasoning: (delta) => {
           if (!thinking) { thinking = true; post({ t: 'status', text: 'Razonando', kind: 'thinking' }); }
@@ -729,7 +767,19 @@ async function run(msg) {
           const target = COMPUTER_NAMES.has(name) ? computerTarget(name, { url: argField(args, 'url'), element_id: argField(args, 'element_id'), app: argField(args, 'app'), key: argField(args, 'key') }) : name === 'run_command' ? argField(args, 'command') : (argField(args, 'path') || argField(args, 'url') || argField(args, 'from'));
           post({ t: 'status', kind: 'tool', name, text: target, bytes: args.length });
         },
-      });
+        });
+      } catch (err) {
+        if (!abort.signal.aborted && step.signal.aborted) {
+          endThink();
+          if (textOpen) post({ t: 'text_end' });
+          stats.rounds--;
+          continue;
+        }
+        throw err;
+      } finally {
+        abort.signal.removeEventListener('abort', relay);
+        current.interrupt = null;
+      }
       endThink();
       if (textOpen) post({ t: 'text_end' });
       if (abort.signal.aborted) { stopReason = 'aborted'; break; }
@@ -772,6 +822,8 @@ async function run(msg) {
       }
       messages.push(assistantMsg);
       const truncated = ['length', 'incomplete'].includes(result.finishReason) || toolCalls.some(c => c.cut);
+      // Only cuts in a row mean the engine is stuck; a long job may be cut many times in total.
+      if (!truncated) continuations = 0;
 
       // A syntactically valid fragment is still not an authorized, complete model response.
       // Record non-execution results so retrying keeps function-call history well formed.
@@ -834,6 +886,8 @@ async function run(msg) {
           publishCandidate();
         }
         post({ t: 'history', messages });
+        // The user wrote while this answer was being prepared: answer that too before ending.
+        if (inbox.length && !abort.signal.aborted && stats.rounds < hardBudget) { completed = false; stopReason = 'done'; continue; }
         break;
       }
 
@@ -866,7 +920,7 @@ async function run(msg) {
           continue;
         }
 
-        if (computer && !MODELS[model].vision && (COMPUTER_VISUAL.has(call.name) || (call.name === 'browser_click' && !a.element_id))) {
+        if (computer && !MODELS[model].vision && (COMPUTER_VISUAL.has(call.name) || (['browser_click', 'browser_hover'].includes(call.name) && !a.element_id) || (call.name === 'browser_scroll' && (a.x !== undefined || a.y !== undefined)))) {
           const error = 'Gas no puede ver capturas. Cambia a Solid o Liquid para capturas y control visual, o usa browser_snapshot y sus element_id para leer e interactuar con el navegador.';
           post({ t: 'tool_start', id: call.id, name: call.name, target });
           post({ t: 'tool_end', id: call.id, status: 'blocked', summary: 'Esta acción necesita Solid o Liquid' });
@@ -957,13 +1011,17 @@ async function run(msg) {
       if (interactive && computerRounds < COMPUTER_ROUNDS) { computerRounds++; stats.rounds--; }
 
       if (!roundOk && toolCalls.length) failedRounds++; else failedRounds = 0;
-      if (failedRounds >= MAX_FAILED_ROUNDS) { stopReason = 'stuck'; break; }
+      if (failedRounds >= MAX_FAILED_ROUNDS * 2) { stopReason = 'stuck'; break; }
+      if (failedRounds === MAX_FAILED_ROUNDS) {
+        // Before giving up, change approach once: most "stuck" runs repeat the same failing call.
+        messages.push({ role: 'user', content: '[Nota automática] Las últimas acciones han fallado todas. No repitas la misma llamada: lee el error exacto, comprueba el estado real (archivos, página, salida del comando) y prueba otra vía. Sigue trabajando por tu cuenta hasta terminar la tarea.' });
+      }
       if (truncated && continuations < E.continuations) {
         continuations++;
         messages.push({ role: 'user', content: 'Continúa exactamente desde donde se cortó la respuesta.' });
       }
     }
-    if (stats.rounds >= E.maxTurns && !completed && !['blocked', 'incomplete'].includes(stopReason)) stopReason = 'max_turns';
+    if (stats.rounds >= budget && !completed && !['blocked', 'incomplete', 'aborted', 'stuck'].includes(stopReason)) stopReason = 'max_turns';
   } catch (err) {
     const m = String(err.message || err);
     if (m === 'ABORTED' || abort.signal.aborted) stopReason = 'aborted';
@@ -987,6 +1045,7 @@ async function run(msg) {
   const changed = [...snapshots.values()];
   if (changed.length) post({ t: 'snapshot', turnId, files: changed });
   post({ t: 'history', messages });
+  if (inbox.length) post({ t: 'steer_unread', ids: inbox.splice(0).map(m => m.id) });
   post({
     t: 'turn_end', turnId, stopReason, elapsedMs: Date.now() - startedAt,
     stats: { tools: stats.tools, files: [...stats.files], commands: stats.commands, tokens: stats.prompt + stats.completion },
@@ -1166,6 +1225,10 @@ port.on('message', (e) => {
       cancelComputerRequests();
       current = null;
     });
+  } else if (msg.type === 'steer') {
+    const text = String(msg.text || '').trim().slice(0, 20000);
+    if (current && text) { current.inbox.push({ id: msg.id, text }); current.interrupt?.(); }
+    else if (text) post({ t: 'steer_unread', ids: [msg.id] });
   } else if (msg.type === 'abort') {
     if (current) current.abort.abort();
   } else if (msg.type === 'approval') {
