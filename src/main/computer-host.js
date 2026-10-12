@@ -210,7 +210,7 @@ function shutdown() {
   browser = desktop = server = bridgeToken = bridgeFile = undefined;
 }
 // local browser v1: Deiza Work (deiza.org, in the Chat view) drives this computer's browser.
-const WORK_ACTIONS = new Set(['open', 'click', 'type', 'key', 'scroll', 'back', 'forward', 'reload', 'drag', 'click_text', 'read', 'status', 'shot']);
+const WORK_ACTIONS = new Set(['open', 'click', 'type', 'key', 'scroll', 'back', 'forward', 'reload', 'drag', 'click_text', 'read', 'status', 'shot', 'board_move']);
 async function work(payload = {}) {
   if (quitting || !browser) return { error: 'Deiza se está cerrando.' };
   if (!isRecord(payload)) return { error: 'Petición no válida.' };
@@ -223,7 +223,7 @@ async function work(payload = {}) {
   const str = (k, max) => { if (a[k] !== undefined) { if (typeof a[k] !== 'string' || a[k].includes('\0') || a[k].length > max) throw new Error(`Argumento no válido: ${k}.`); args[k] = a[k]; } };
   const num = (k) => { if (a[k] !== undefined) { const v = Number(a[k]); if (!Number.isFinite(v) || Math.abs(v) > 100000) throw new Error(`Argumento no válido: ${k}.`); args[k] = v; } };
   try {
-    str('url', 2048); str('text', 20000); str('key', 24);
+    str('url', 2048); str('text', 20000); str('key', 24); str('from', 2); str('to', 2); str('promotion', 1); str('orientation', 5);
     for (const k of ['x', 'y', 'x1', 'y1', 'x2', 'y2', 'dy']) num(k);
     for (const k of ['submit', 'clear']) if (a[k] !== undefined) args[k] = Boolean(a[k]);
   } catch (err) { return { error: err.message }; }

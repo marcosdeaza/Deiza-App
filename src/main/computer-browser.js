@@ -48,7 +48,43 @@ const words = () => WORDS[I18n.uiLanguage()];
 const MODS = { alt: 1, control: 2, ctrl: 2, meta: 4, command: 4, cmd: 4, shift: 8 };
 const KEYS = { Enter: [13, 'Enter', '\r'], Tab: [9, 'Tab'], Escape: [27, 'Escape'], Backspace: [8, 'Backspace'],
   Delete: [46, 'Delete'], ArrowLeft: [37, 'ArrowLeft'], ArrowUp: [38, 'ArrowUp'], ArrowRight: [39, 'ArrowRight'],
-  ArrowDown: [40, 'ArrowDown'], Home: [36, 'Home'], End: [35, 'End'], PageUp: [33, 'PageUp'], PageDown: [34, 'PageDown'], Space: [32, 'Space', ' '] };
+  ArrowDown: [40, 'ArrowDown'], Home: [36, 'Home'], End: [35, 'End'], PageUp: [33, 'PageUp'], PageDown: [34, 'PageDown'], Space: [32, 'Space', ' '],
+  Insert: [45, 'Insert'], ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, [112 + i, `F${i + 1}`]])) };
+// board v1: the chess board of the page (chess.com, lichess and similar), its box and who plays from below.
+const BOARD_FIND = `(() => {
+  const pick = () => {
+    let best = null, score = 0;
+    for (const el of document.querySelectorAll('wc-chess-board, chess-board, cg-board, cg-container, .cg-wrap, #board-layout-chessboard, [class*="board"], [id*="board"], canvas')) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 160 || r.height < 160 || Math.abs(r.width - r.height) > Math.max(r.width, r.height) * 0.08) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+      const v = r.width * r.height * (/^(WC-CHESS-BOARD|CHESS-BOARD|CG-BOARD)$/.test(el.tagName) ? 1.6 : 1);
+      if (v > score) { best = el; score = v; }
+    }
+    return best;
+  };
+  let el = pick();
+  if (!el) return null;
+  let r = el.getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) { el.scrollIntoView({ block: 'center', behavior: 'instant' }); r = el.getBoundingClientRect(); }
+  const black = el.classList.contains('flipped') || !!el.closest('.flipped, .orientation-black') ||
+    !!document.querySelector('wc-chess-board.flipped, chess-board.flipped, .cg-wrap.orientation-black');
+  return { x: r.left, y: r.top, w: r.width, h: r.height, orientation: black ? 'black' : 'white', tag: el.tagName.toLowerCase() };
+})()`;
+const PROMOTION_FIND = (piece, color) => `((p, c) => {
+  const names = { q: 'queen', r: 'rook', b: 'bishop', n: 'knight' };
+  const el = document.querySelector('.promotion-window .promotion-piece.' + c + p) || document.querySelector('.promotion-piece.' + c + p) ||
+    document.querySelector('#promotion-choice piece.' + names[p]) || document.querySelector('[class*="promotion"] [class*="' + names[p] + '"]');
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+})(${JSON.stringify(piece)}, ${JSON.stringify(color)})`;
+const squareCenter = (b, sq) => {
+  const f = 'abcdefgh'.indexOf(sq[0]), r = Number(sq[1]) - 1;
+  const col = b.orientation === 'white' ? f : 7 - f, row = b.orientation === 'white' ? 7 - r : r;
+  return { x: b.x + (col + 0.5) * b.w / 8, y: b.y + (row + 0.5) * b.h / 8 };
+};
 const inside = (root, file) => { const rel = path.relative(root, file); return !rel.startsWith('..') && !path.isAbsolute(rel); };
 const cleanText = (v, max = 300) => String(v || '').replace(/[\x00-\x08\x0b-\x1f]/g, '').slice(0, max);
 const hostOf = (url) => { try { return new URL(url).host; } catch { return ''; } };
@@ -129,10 +165,13 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
   }
   function info(t) { return { tab_id: t.id, title: cleanText(t.wc.getTitle()), url: t.wc.getURL(), active: t.shell.active === t.id }; }
   function validateURL(value, ctx = {}) {
-    const raw = String(value || '').trim();
+    let raw = String(value || '').trim();
     if (!raw) return 'about:blank';
     if (raw === 'about:blank') return raw;
-    if (!/^[a-z][a-z0-9+.-]*:/i.test(raw)) {
+    // A file:// URL or a Windows path (C:\proyecto\index.html) is a project file, not a web address:
+    // "C:" used to be read as a URL scheme and the page never opened.
+    if (/^file:\/\//i.test(raw)) { try { raw = decodeURIComponent(new URL(raw).pathname).replace(/^\/([a-zA-Z]:)/, '$1'); } catch { /* keep it */ } }
+    if (/^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith('\\\\') || !/^[a-z][a-z0-9+.-]*:/i.test(raw)) {
       if (!ctx.folder) throw new Error('Indica una URL http/https o un archivo del proyecto.');
       const root = fs.realpathSync(ctx.folder), file = fs.realpathSync(path.resolve(root, raw));
       if (!inside(root, file) || !fs.statSync(file).isFile()) throw new Error('El archivo debe estar dentro del proyecto.');
@@ -538,7 +577,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
   function toPage(t, x, y, message) {
     const s = shotSize(t);
     x = Number(x); y = Number(y);
-    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= s.w || y >= s.h) throw new Error(message || `El punto debe estar dentro de la captura del navegador (${s.w} × ${s.h}).`);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= s.w || y >= s.h) throw new Error(`${message || 'El punto'} (${x}, ${y}) queda fuera de la captura actual del navegador (${s.w} × ${s.h} px). Usa coordenadas de la última captura.`);
     return { x: x / s.scale, y: y / s.scale };
   }
   async function snapshot(t, ctx = {}, args = {}) {
@@ -606,6 +645,49 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     await command(t, 'Input.dispatchKeyEvent', { type: 'keyDown', ...params }, signal);
     await command(t, 'Input.dispatchKeyEvent', { type: 'keyUp', ...params }, signal);
   }
+  async function boardOf(t, signal) {
+    const b = (await isolated(t, BOARD_FIND, signal))?.value;
+    return b && Number.isFinite(b.x) && b.w > 0 ? b : null;
+  }
+  /** Board box in capture pixels, for the model (squares need no pixel arithmetic: browser_board_move). */
+  function boardInShot(t, b) {
+    if (!b) return undefined;
+    const k = shotSize(t).scale;
+    return { x0: Math.round(b.x * k), y0: Math.round(b.y * k), w: Math.round(b.w * k), h: Math.round(b.h * k), orientation: b.orientation };
+  }
+  /** Moves a piece from one square to another (e2, e4) by dragging between the exact square centres. */
+  async function boardMove(t, args, signal) {
+    const from = String(args.from || '').trim().toLowerCase(), to = String(args.to || '').trim().toLowerCase();
+    if (!/^[a-h][1-8]$/.test(from) || !/^[a-h][1-8]$/.test(to) || from === to) throw new Error('Indica las casillas en notación algebraica, por ejemplo from "e2" y to "e4".');
+    let b = await boardOf(t, signal);
+    if (!b) throw new Error('No encuentro un tablero de ajedrez en la página. Haz una captura y usa browser_click o browser_drag con sus coordenadas.');
+    if (args.orientation === 'white' || args.orientation === 'black') b = { ...b, orientation: args.orientation };
+    const a = squareCenter(b, from), z = squareCenter(b, to);
+    const label = `${words().drag} ${from}→${to}`;
+    activity(t, label);
+    await pointer(t, { kind: 'move', x: a.x, y: a.y, label }, signal);
+    await command(t, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x, y: a.y }, signal);
+    await command(t, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: a.x, y: a.y, button: 'left', buttons: 1, clickCount: 1 }, signal);
+    const glide = pointer(t, { kind: 'drag', x: z.x, y: z.y, ms: 200, label }, signal).catch(() => null);
+    for (let i = 1; i <= 8; i++) {
+      const k = i / 8;
+      await command(t, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x + (z.x - a.x) * k, y: a.y + (z.y - a.y) * k, button: 'left', buttons: 1 }, signal);
+      if (i < 8) await wait(18, signal);
+    }
+    await command(t, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: z.x, y: z.y, button: 'left', buttons: 0, clickCount: 1 }, signal);
+    await glide;
+    const piece = String(args.promotion || '').toLowerCase()[0];
+    if ('qrbn'.includes(piece) && piece) {
+      await wait(350, signal);
+      const p = (await isolated(t, PROMOTION_FIND(piece, b.orientation === 'black' ? 'b' : 'w'), signal))?.value;
+      if (p) {
+        await pointer(t, { kind: 'click', x: p.x, y: p.y, label }, signal);
+        await command(t, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', buttons: 1, clickCount: 1 }, signal);
+        await command(t, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', buttons: 0, clickCount: 1 }, signal);
+      }
+    }
+    return { board: b, to: z };
+  }
   async function screenshot(t, args, ctx) {
     const hidden = Number.isFinite(t.pointer.x) ? await pointer(t, { kind: 'conceal' }, ctx.signal) : null;
     let image;
@@ -638,7 +720,12 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     if (t.blank && name !== 'browser_close' && name !== 'browser_history') throw new Error('La pestaña está en blanco. Usa browser_open con una URL.');
     await prepare(t, signal);
     if (name === 'browser_snapshot') { activity(t, w.read); return snapshot(t, ctx, args); }
-    if (name === 'browser_screenshot') { activity(t, w.look); return screenshot(t, args, ctx); }
+    if (name === 'browser_screenshot') {
+      activity(t, w.look);
+      const shot = await screenshot(t, args, ctx);
+      const board = boardInShot(t, await boardOf(t, signal).catch(() => null));
+      return board ? { ...shot, board } : shot;
+    }
     if (name === 'browser_close') { const id = t.id; closeTab(t); return { closed: id }; }
     const navs = t.navs;
     t.busy = true;
@@ -659,7 +746,7 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
       if (name === 'browser_click') {
         let x, y, label = w.click;
         if (args.element_id) { const box = await elementBox(t, args.element_id, signal); x = box.x; y = box.y; label = named(w.click, box.name); }
-        else ({ x, y } = toPage(t, args.x, args.y, 'El clic debe estar dentro de la captura del navegador.'));
+        else ({ x, y } = toPage(t, args.x, args.y));
         activity(t, label);
         await pointer(t, { kind: 'click', x, y, label: label.length > 34 ? w.click : label }, signal);
         const button = ['left', 'right', 'middle'].includes(args.button) ? args.button : 'left';
@@ -670,6 +757,8 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
           await command(t, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons: button === 'left' ? 1 : button === 'right' ? 2 : 4, clickCount: i, modifiers: mask }, signal);
           await command(t, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount: i, modifiers: mask }, signal);
         }
+      } else if (name === 'browser_board_move') {
+        await boardMove(t, args, signal);
       } else if (name === 'browser_hover') {
         let x, y, label = w.hover;
         if (args.element_id) { const box = await elementBox(t, args.element_id, signal); x = box.x; y = box.y; label = named(w.hover, box.name); }
@@ -730,13 +819,17 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
         }
       } else throw new Error('Acción de navegador desconocida.');
     } finally { t.busy = false; }
-    const observe = ['snapshot', 'screenshot', 'none'].includes(args.observe) ? args.observe : name === 'browser_drag' ? 'screenshot' : 'snapshot';
+    const observe = ['snapshot', 'screenshot', 'none'].includes(args.observe) ? args.observe : ['browser_drag', 'browser_board_move'].includes(name) ? 'screenshot' : 'snapshot';
     const settle = Number.isInteger(args.settle_ms) ? Math.min(Math.max(args.settle_ms, 0), 3000) : observe === 'none' ? 40 : 140;
     if (settle) await wait(settle, signal);
     // A click that started a page load waits for the new page instead of reading a half-built one.
     if (t.navs !== navs && t.wc.isLoading()) await untilUsable(t, signal, 8000);
     if (observe === 'none') return { ...info(t), ok: true };
-    if (observe === 'screenshot') return screenshot(t, {}, { ...ctx, png: false });
+    if (observe === 'screenshot') {
+      const shot = await screenshot(t, {}, { ...ctx, png: false });
+      const board = boardInShot(t, await boardOf(t, signal).catch(() => null));
+      return board ? { ...shot, board } : shot;
+    }
     return snapshot(t, ctx);
   }
   async function execute(name, args = {}, ctx = {}) {
@@ -824,7 +917,9 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
     const elements = (Array.isArray(els) ? els : []).map(e => (e.t === 'area'
       ? { ...e, x0: Math.round(e.x0 * k), y0: Math.round(e.y0 * k), w: Math.round(e.w * k), h: Math.round(e.h * k) }
       : { ...e, x: Math.round(e.x * k), y: Math.round(e.y * k) }));
-    return { url: t.wc.getURL(), title: cleanText(t.wc.getTitle(), 200), shot: shot.data_url.split(',')[1], w: shot.width, h: shot.height, elements, ...extra };
+    const board = boardInShot(t, await boardOf(t, ctx.signal).catch(() => null));
+    return { url: t.wc.getURL(), title: cleanText(t.wc.getTitle(), 200), shot: shot.data_url.split(',')[1], w: shot.width, h: shot.height, elements,
+      ...(board ? { board } : {}), ...extra };
   }
   async function work(action, args = {}, ctx = {}) {
     const session = { sessionId: ctx.sessionId, signal: ctx.signal };
@@ -864,6 +959,12 @@ function createBrowserController({ getOwner = () => null, onStopAgent = () => {}
           const k = shotSize(t).scale;
           await run('browser_click', { x: hit.x * k, y: hit.y * k, settle_ms: 220 });
           extra.clicked = { x: Math.round(hit.x * k), y: Math.round(hit.y * k) };
+        } else if (action === 'board_move') {
+          await prepare(t, ctx.signal);
+          const moved = await boardMove(t, args, ctx.signal);
+          await wait(300, ctx.signal);
+          const k = shotSize(t).scale;
+          extra.clicked = { x: Math.round(moved.to.x * k), y: Math.round(moved.to.y * k) };
         } else if (action === 'read') {
           activity(t, words().read);
           Object.assign(extra, (await isolated(t, WORK_READ, ctx.signal))?.value || {});

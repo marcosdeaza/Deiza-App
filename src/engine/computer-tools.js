@@ -40,6 +40,14 @@ const COMPUTER_TOOL_DEFINITIONS = [
     y: { type: 'number', description: 'y in pixels of the latest browser_screenshot, when element_id is unavailable.' },
     observe: observeBrowser, settle_ms: settle,
   }),
+  tool('browser_board_move', 'Move a piece on the chess board of the page (chess.com, lichess and similar) from one square to another in algebraic notation, e.g. from "e2" to "e4". The browser finds the board and its orientation and drags between the exact square centres, so never estimate square pixels yourself. Returns a screenshot (with the board box). For castling move the king two squares (e1 to g1); for promotion add promotion.', {
+    tab_id: tab,
+    from: { type: 'string', description: 'Origin square, a1-h8.' },
+    to: { type: 'string', description: 'Destination square, a1-h8.' },
+    promotion: { type: 'string', enum: ['q', 'r', 'b', 'n'], description: 'Piece to promote a pawn to (default none).' },
+    orientation: { type: 'string', enum: ['white', 'black'], description: 'Only if the board detection is wrong: the side shown at the bottom.' },
+    observe: observeBrowser, settle_ms: settle,
+  }, ['from', 'to']),
   tool('browser_history', 'Go back, forward or reload the current tab and read the resulting page.', {
     tab_id: tab,
     action: { type: 'string', enum: ['back', 'forward', 'reload'], description: 'back, forward or reload.' },
@@ -108,7 +116,7 @@ const COMPUTER_TOOL_DEFINITIONS = [
 ];
 
 const COMPUTER_NAMES = new Set(COMPUTER_TOOL_DEFINITIONS.map(t => t.name));
-const COMPUTER_MUTATING = new Set(['browser_click', 'browser_hover', 'browser_drag', 'browser_type', 'browser_key', 'browser_scroll', 'browser_close', 'desktop_focus', 'desktop_click', 'desktop_drag', 'desktop_mouse_move', 'desktop_type', 'desktop_key', 'desktop_scroll']);
+const COMPUTER_MUTATING = new Set(['browser_click', 'browser_hover', 'browser_board_move', 'browser_drag', 'browser_type', 'browser_key', 'browser_scroll', 'browser_close', 'desktop_focus', 'desktop_click', 'desktop_drag', 'desktop_mouse_move', 'desktop_type', 'desktop_key', 'desktop_scroll']);
 const COMPUTER_VISUAL = new Set(['browser_screenshot', 'browser_drag', 'desktop_screenshot', 'desktop_click', 'desktop_drag', 'desktop_mouse_move', 'desktop_type', 'desktop_key', 'desktop_scroll']);
 const COMPUTER_TOOL_SPECS = COMPUTER_TOOL_DEFINITIONS.map(t => ({ type: 'function', function: t }));
 
@@ -124,6 +132,7 @@ function computerTarget(name, args = {}) {
   if (name === 'browser_open') return safeUrl(args.url);
   if (name === 'browser_type' || name === 'desktop_type') return `Escribir · ${String(args.text || '').length} caracteres`;
   if (name === 'browser_click' || name === 'browser_hover') return args.element_id ? `Elemento ${String(args.element_id).slice(0, 80)}` : `Punto ${args.x}, ${args.y}`;
+  if (name === 'browser_board_move') return `Mover ${String(args.from || '').slice(0, 2)} → ${String(args.to || '').slice(0, 2)}`;
   if (name === 'browser_history') return { back: 'Atrás', forward: 'Adelante', reload: 'Recargar' }[args.action] || 'Historial';
   if (name === 'desktop_click' || name === 'desktop_mouse_move') return `Punto ${args.x}, ${args.y}`;
   if (name === 'desktop_drag' || name === 'browser_drag') return `Arrastrar ${args.from_x}, ${args.from_y} → ${args.to_x}, ${args.to_y}`;
@@ -151,7 +160,7 @@ function describeComputerResult(name, res = {}, args = {}) {
   if (name === 'browser_tabs') return { status: 'ok', summary: `${Array.isArray(res.tabs) ? res.tabs.length : 0} pestañas` };
   if (name === 'desktop_apps') return { status: 'ok', summary: `${Array.isArray(res.apps) ? res.apps.length : 0} aplicaciones` };
   const summaries = {
-    browser_open: 'Página abierta', browser_snapshot: 'Página leída', browser_click: 'Clic realizado', browser_hover: 'Puntero encima', browser_history: 'Página cargada', browser_drag: 'Arrastre realizado', desktop_drag: 'Arrastre realizado',
+    browser_open: 'Página abierta', browser_snapshot: 'Página leída', browser_click: 'Clic realizado', browser_hover: 'Puntero encima', browser_history: 'Página cargada', browser_board_move: 'Pieza movida', browser_drag: 'Arrastre realizado', desktop_drag: 'Arrastre realizado',
     browser_type: 'Texto introducido', browser_key: 'Tecla pulsada', browser_scroll: 'Página desplazada', browser_close: 'Pestaña cerrada',
     desktop_focus: 'Aplicación enfocada', desktop_click: 'Clic realizado', desktop_mouse_move: 'Puntero movido',
     desktop_type: 'Texto introducido', desktop_key: 'Tecla pulsada', desktop_scroll: 'Vista desplazada',

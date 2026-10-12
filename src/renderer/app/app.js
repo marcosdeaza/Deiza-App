@@ -823,7 +823,7 @@ const VERBS = {
   browser_drag: 'Arrastrar', desktop_drag: 'Arrastrar', desktop_mouse_move: 'Mover puntero',
   invoke_subagent: 'Subagente', view_image: 'Imagen', update_plan: 'Plan',
   browser_open: 'Abrir navegador', browser_tabs: 'Ver pestañas', browser_snapshot: 'Leer página',
-  browser_screenshot: 'Capturar página', browser_click: 'Clicar', browser_type: 'Escribir', browser_hover: 'Señalar', browser_history: 'Historial',
+  browser_screenshot: 'Capturar página', browser_click: 'Clicar', browser_type: 'Escribir', browser_hover: 'Señalar', browser_history: 'Historial', browser_board_move: 'Mover pieza',
   browser_key: 'Pulsar tecla', browser_scroll: 'Desplazar página', browser_close: 'Cerrar pestaña',
   desktop_screenshot: 'Capturar pantalla', desktop_apps: 'Ver aplicaciones', desktop_focus: 'Abrir aplicación',
   desktop_click: 'Clicar', desktop_type: 'Escribir', desktop_key: 'Pulsar tecla', desktop_scroll: 'Desplazar',

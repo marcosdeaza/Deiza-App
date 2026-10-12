@@ -13,7 +13,7 @@
     'Enviar ahora: lo leerá mientras trabaja (Intro)': 'Send now: it reads it while working (Enter)', 'Enviar mientras trabaja': 'Send while working',
     'Los adjuntos se envían cuando termine; el texto lo lee ya.': 'Attachments go when it finishes; the text is read now.',
     'Escribe el mensaje; los adjuntos se envían cuando termine.': 'Write the message; attachments go when it finishes.',
-    'Señalar': 'Point', 'Historial': 'History',
+    'Señalar': 'Point', 'Historial': 'History', 'Mover pieza': 'Move piece',
     'Ajustes': 'Settings', 'Ajustes…': 'Settings…', 'Cuenta': 'Account', 'General': 'General', 'Acerca de': 'About',
     'Cerrar sesión': 'Sign out', 'Nueva sesión': 'New session', 'Abrir carpeta…': 'Open folder…', 'Modelo': 'Model',
     'Esfuerzo': 'Effort', 'Bajo': 'Low', 'Medio': 'Medium', 'Alto': 'High', 'Omnisciente': 'Max', 'Idioma': 'Language',
