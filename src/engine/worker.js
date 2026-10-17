@@ -38,8 +38,8 @@ const post = (ev) => { try { port.postMessage(ev); } catch { /* app went away */
 const MAX_FAILED_ROUNDS = 4;
 // Real context windows of the Code engines (tokens). The vendored CLI modules assume 1M, which made
 // long sessions fail on every request; compaction starts at 70 % of the real window.
-const { liquid55Live } = require('./vendor/config');
-const CONTEXT_LIMITS = { get 'deiza-omniscient'() { return liquid55Live() ? 1048576 : 262144; }, 'deiza-liquid-5.1': 262144, 'deiza-liquid-5.5': 1048576, 'deiza-solid-5': 1048576, 'deiza-gas-4.5': 131072 };
+const { liquid55Live, gas55Live } = require('./vendor/config');
+const CONTEXT_LIMITS = { get 'deiza-omniscient'() { return liquid55Live() ? 1048576 : 262144; }, 'deiza-liquid-5.1': 262144, 'deiza-liquid-5.5': 1048576, 'deiza-solid-5': 1048576, 'deiza-gas-4.5': 131072, get 'deiza-gas'() { return gas55Live() ? 200000 : 131072; }, 'deiza-gas-5.5': 200000 };
 const contextLimit = (model) => CONTEXT_LIMITS[model] || 262144;
 const MAX_TOKENS = 32768;
 
@@ -50,6 +50,8 @@ const MODELS = {
   'deiza-liquid-5.5': { effort: true, vision: true },
   'deiza-omniscient': { effort: true, vision: true },   // shown as Liquid 5.1
   'deiza-solid-5': { effort: true, vision: true },
+  'deiza-gas': { effort: false, get vision() { return gas55Live(); } },
+  'deiza-gas-5.5': { effort: false, vision: true },
   'deiza-gas-4.5': { effort: false, vision: false },
 };
 const DEFAULT_MODEL = 'deiza-solid-5';

@@ -97,7 +97,7 @@ const ComputerTools = Object.fromEntries([...COMPUTER_NAMES].map(name => [name, 
 }]));
 
 function computerModelHasVision(cfg) {
-  return cfg?.isCustomEndpoint ? cfg.vision !== false : !/^deiza-gas(?:-|$)/.test(String(cfg?.model || ''));
+  return cfg?.isCustomEndpoint ? cfg.vision !== false : (!/^deiza-gas(?:-|$)/.test(String(cfg?.model || '')) || (require('./config').gas55Live() && cfg?.model !== 'deiza-gas-4.5'));
 }
 
 module.exports = { ComputerTools, computerBridgeFile, requestComputerBridge, computerModelHasVision };

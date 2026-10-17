@@ -164,6 +164,8 @@ const S = {
 const itemEls = new Map();
 
 // Code models and effort levels (ids match the engine)
+const GAS55_AT = '2026-10-19T12:00:00+02:00';
+const gas55Live = (now = Date.now()) => now >= Date.parse(GAS55_AT);
 const LIQUID55_AT = '2026-10-12T00:00:00+02:00';
 const liquid55Live = (now = Date.now()) => now >= Date.parse(LIQUID55_AT);
 const MODELS = [
@@ -171,7 +173,9 @@ const MODELS = [
   { id: 'deiza-omniscient', get name() { return liquid55Live() ? 'Liquid 5.5' : 'Liquid 5.1'; }, tag: 'Equilibrado y agéntico', get desc() { return liquid55Live() ? 'Razonamiento adaptativo, contexto de 1M y visión.' : 'Rápido y equilibrado, contexto de 256K. Ve imágenes.'; }, badge: null },
   { id: 'deiza-liquid-5.1', name: 'Liquid 5.1', desc: 'Generación anterior, contexto de 256K y visión.', badge: null, get hidden() { return !liquid55Live(); } },
   { id: 'deiza-liquid-5.5', name: 'Liquid 5.5', desc: 'Razonamiento adaptativo, contexto de 1M y visión.', badge: null, hidden: true },
-  { id: 'deiza-gas-4.5', name: 'Gas 4.5', tag: 'Instantáneo', desc: 'El más rápido, para cambios pequeños.', badge: null },
+  { id: 'deiza-gas', get name() { return gas55Live() ? 'GAS 5.5' : 'Gas 4.5'; }, tag: 'Rápido', get desc() { return gas55Live() ? 'Chat y código, visión, herramientas y contexto de 200K.' : 'Para cambios pequeños e ideas rápidas.'; }, badge: null },
+  { id: 'deiza-gas-5.5', name: 'GAS 5.5', desc: '19 de octubre, 12:00 (hora peninsular).', get hidden() { return gas55Live(); }, get disabled() { return !gas55Live(); }, badge: null },
+  { id: 'deiza-gas-4.5', name: 'Gas 4.5', get desc() { return gas55Live() ? 'Obsoleto · Generación anterior.' : 'Versión anterior fija.'; }, get hidden() { return !gas55Live(); }, badge: null },
 ];
 const EFFORTS = [
   { id: 'low',    name: 'Bajo',        desc: 'Rápido y directo: lo justo para resolverlo.' },
@@ -1465,7 +1469,7 @@ function capuEffort(prev, next) {
   if (next === 'max') { if (prev !== 'max') capuReact('saiyan'); return; }
   if (CAPU_EFFORT[next]) capuReact(CAPU_EFFORT[next]);
 }
-const CAPU_MODEL = { 'deiza-solid-5': 'solid', 'deiza-omniscient': 'liquid', 'deiza-gas-4.5': 'gas' };
+const CAPU_MODEL = { 'deiza-gas': 'gas', 'deiza-gas-5.5': 'gas', 'deiza-solid-5': 'solid', 'deiza-omniscient': 'liquid', 'deiza-gas-4.5': 'gas' };
 function capuCommandKind(cmd) {
   const c = String(cmd || '');
   if (/\b(npm|pnpm|yarn|bun)\s+(i|install|add|ci)\b|\bpip3?\s+install\b|\bcargo\s+add\b/.test(c)) return 'npm';
@@ -2179,7 +2183,7 @@ function toggleModelMenu(btn) {
   const list = h('div', { class: 'mm-list', role: 'menu' });
   for (const m of MODELS.filter(m => !m.hidden || m.id === c.model)) {
     const on = m.id === c.model;
-    list.append(h('button', { class: `mm-row${on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(on), onclick: () => { chooseModel({ model: m.id }); closeModelMenu(); } },
+    list.append(h('button', { class: `mm-row${on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(on), disabled: !!m.disabled, 'aria-disabled': String(!!m.disabled), onclick: () => { if (!m.disabled) { chooseModel({ model: m.id }); closeModelMenu(); } } },
       h('span', { class: 'mm-main' }, h('span', { class: 'mm-title', text: m.name }), h('span', { class: 'mm-sub', text: T(m.desc) })),
       h('span', { class: 'mm-check' }, on ? icon('check') : null)));
   }
@@ -2950,8 +2954,10 @@ boot().catch((err) => {
 
 // Refresh an open composer at the scheduled boundary, including after sleep.
 let lastLiquid55 = liquid55Live();
+let lastGas55 = gas55Live();
 function refreshLiquidLaunch() {
   const live = liquid55Live();
+  if (gas55Live() !== lastGas55) { lastGas55 = gas55Live(); closeModelMenu(); repaintModelPills(); }
   if (live !== lastLiquid55) { lastLiquid55 = live; closeModelMenu(); repaintModelPills(); }
 }
 setInterval(refreshLiquidLaunch, 60000);
