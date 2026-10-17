@@ -168,6 +168,8 @@ const GAS55_AT = '2026-10-19T12:00:00+02:00';
 const gas55Live = (now = Date.now()) => now >= Date.parse(GAS55_AT);
 const LIQUID55_AT = '2026-10-12T00:00:00+02:00';
 const liquid55Live = (now = Date.now()) => now >= Date.parse(LIQUID55_AT);
+const isGas55Model = (model) => gas55Live() && ['deiza-gas', 'deiza-gas-5.5'].includes(model);
+const gas55Effort = () => { try { const e = localStorage.getItem('deiza:code:gas55-effort'); return ['low', 'medium', 'high', 'ultra', 'max'].includes(e) ? e : 'low'; } catch { return 'low'; } };
 const MODELS = [
   { id: 'deiza-solid-5', name: 'Solid 5', tag: 'El más capaz · 1M de contexto', desc: 'Metódico: planifica, verifica y resuelve lo difícil. Contexto de 1M, ve imágenes.', badge: 'Recomendado' },
   { id: 'deiza-omniscient', get name() { return liquid55Live() ? 'Liquid 5.5' : 'Liquid 5.1'; }, tag: 'Equilibrado y agéntico', get desc() { return liquid55Live() ? 'Razonamiento adaptativo, contexto de 1M y visión.' : 'Rápido y equilibrado, contexto de 256K. Ve imágenes.'; }, badge: null },
@@ -580,6 +582,10 @@ async function openSession(id, force = false) {
     return;
   }
   S.cur = { ...doc, running: doc.running };
+  if (isGas55Model(S.cur.model)) {
+    S.cur.effort = gas55Effort();
+    await deiza.code.setModel({ id: S.cur.id, effort: S.cur.effort });
+  }
   S.pendingFolder = null;
   S.attachments = (S.attachmentDrafts.get(id) || []).slice();
   S.status = null;
@@ -1901,10 +1907,12 @@ function renderModelPill() {
   const btn = h('button', { class: 'model-pill', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' });
   btn._paint = () => {
     const c = currentChoice();
+    const legacyGas = ['deiza-gas', 'deiza-gas-4.5'].includes(c.model) && !isGas55Model(c.model);
     btn.innerHTML = '';
-    btn.append(h('span', { class: 'mp-name', text: modelInfo(c.model).name }),
-      h('span', { class: `mp-eff${c.effort === 'max' ? ' omni' : ''}`, text: T(effortInfo(c.effort).name) }), icon('down', 'i mp-chev'));
-    btn.title = `${T('Modelo')}: ${modelInfo(c.model).name} · ${T('Esfuerzo')}: ${T(effortInfo(c.effort).name)}`;
+    btn.append(h('span', { class: 'mp-name', text: modelInfo(c.model).name }));
+    if (!legacyGas) btn.append(h('span', { class: `mp-eff${c.effort === 'max' ? ' omni' : ''}`, text: T(effortInfo(c.effort).name) }));
+    btn.append(icon('down', 'i mp-chev'));
+    btn.title = `${T('Modelo')}: ${modelInfo(c.model).name}` + (legacyGas ? '' : ` · ${T('Esfuerzo')}: ${T(effortInfo(c.effort).name)}`);
   };
   btn._paint();
   btn.onclick = (e) => { e.stopPropagation(); toggleModelMenu(btn); };
@@ -1917,7 +1925,9 @@ function repaintModelPills() {
 
 async function chooseModel(patch) {
   const before = currentChoice();
+  if (patch.model && isGas55Model(patch.model) && !isGas55Model(before.model) && !patch.effort) patch.effort = gas55Effort();
   const c = { ...before, ...patch };
+  if (isGas55Model(c.model) && patch.effort) { try { localStorage.setItem('deiza:code:gas55-effort', patch.effort); } catch {} }
   if (patch.model && modelInfo(patch.model).id !== modelInfo(before.model).id) capuReact(CAPU_MODEL[modelInfo(patch.model).id] || 'mid');
   else if (patch.effort && patch.effort !== before.effort) capuEffort(before.effort, patch.effort);
   S.model = c.model;
@@ -2187,9 +2197,11 @@ function toggleModelMenu(btn) {
       h('span', { class: 'mm-main' }, h('span', { class: 'mm-title', text: m.name }), h('span', { class: 'mm-sub', text: T(m.desc) })),
       h('span', { class: 'mm-check' }, on ? icon('check') : null)));
   }
-  const slider = effortSlider(c.effort, (effort) => chooseModel({ effort }));
-  el.append(list, h('div', { class: 'mm-sep' }), slider);
-  if (c.model === 'deiza-gas-4.5') el.append(h('p', { class: 'mm-note', text: T('Gas no razona: el esfuerzo solo cambia cuánto explora y verifica antes de terminar.') }));
+  el.append(list);
+  const legacyGas = ['deiza-gas', 'deiza-gas-4.5'].includes(c.model) && !isGas55Model(c.model);
+  if (!legacyGas) el.append(h('div', { class: 'mm-sep' }), effortSlider(c.effort, (effort) => chooseModel({ effort })));
+  if (isGas55Model(c.model)) el.append(h('p', { class: 'mm-note', text: T('GAS 5.5 usa Bajo por defecto. Subir el esfuerzo activa razonamiento extendido y puede tardar y consumir más.') }));
+  else if (c.model === 'deiza-gas-4.5' || c.model === 'deiza-gas') el.append(h('p', { class: 'mm-note', text: T('Gas 4.5 no tiene razonamiento extendido: el esfuerzo solo cambia cuánto explora y verifica el agente.') }));
   el.style.visibility = 'hidden';
   document.body.append(el);
   const r = btn.getBoundingClientRect();
@@ -2826,6 +2838,10 @@ async function boot() {
   DeizaI18n.setLanguage(S.language);
   document.documentElement.lang = DeizaI18n.uiLanguage();
   try { const p = await deiza.code.prefs(); S.model = p.model; S.effort = p.effort; } catch { /* defaults */ }
+  if (isGas55Model(S.model)) {
+    S.effort = gas55Effort();
+    await deiza.code.setModel({ effort: S.effort });
+  }
   S.platform = info.platform;
   S.home = info.home;
   S.auth = info.auth;
@@ -2957,7 +2973,11 @@ let lastLiquid55 = liquid55Live();
 let lastGas55 = gas55Live();
 function refreshLiquidLaunch() {
   const live = liquid55Live();
-  if (gas55Live() !== lastGas55) { lastGas55 = gas55Live(); closeModelMenu(); repaintModelPills(); }
+  if (gas55Live() !== lastGas55) {
+    lastGas55 = gas55Live();
+    if (isGas55Model(currentChoice().model)) chooseModel({ effort: gas55Effort() });
+    closeModelMenu(); repaintModelPills();
+  }
   if (live !== lastLiquid55) { lastLiquid55 = live; closeModelMenu(); repaintModelPills(); }
 }
 setInterval(refreshLiquidLaunch, 60000);

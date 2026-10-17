@@ -549,6 +549,7 @@ Provide a crisp, actionable, structured report with code snippets, root cause, o
           apiBase: ctx.cfg.apiBase,
           apiKey: ctx.cfg.isCustomEndpoint ? (ctx.cfg.endpointKey || '') : ctx.cfg.apiKey,
           model: ctx.cfg.model,
+          effort: require('./config').effortForModel(ctx.cfg),
           messages: subMessages,
           onChunk: (chunk) => {
             streamedSubagent += chunk;

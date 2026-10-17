@@ -22,7 +22,7 @@ const DEIZA_DIR = path.join(os.homedir(), '.deiza');
 const CONFIG_FILE = path.join(DEIZA_DIR, 'config.json');
 const SESSIONS_DIR = path.join(DEIZA_DIR, 'sessions');
 
-const VERSION = '2.5.4';
+const VERSION = '2.5.5';
 const DEFAULT_DEIZA_API = 'https://deiza.org';
 const DEFAULT_MODEL = 'deiza-solid';   // 1M of context: the default for coding since 2.4.0
 
@@ -30,6 +30,13 @@ const LIQUID55_AT = '2026-10-12T00:00:00+02:00';
 const liquid55Live = (now = Date.now()) => now >= Date.parse(LIQUID55_AT);
 const GAS55_AT = '2026-10-19T12:00:00+02:00';
 const gas55Live = (now = Date.now()) => now >= Date.parse(GAS55_AT);
+const EFFORTS = ['low', 'medium', 'high', 'ultra', 'max'];
+const isGas55Model = (model, now = Date.now()) => gas55Live(now) && ['deiza-gas', 'deiza-gas-5.5'].includes(model);
+const modelSupportsEffort = (model) => isGas55Model(model) || !String(model || '').includes('gas');
+const effortForModel = (cfg, model = cfg.model) => {
+  const value = isGas55Model(model) ? (cfg.gasEffort || 'low') : cfg.effort;
+  return modelSupportsEffort(model) && EFFORTS.includes(value) ? value : undefined;
+};
 const NATIVE_MODELS = ['deiza-gas-4.5', 'deiza-gas-5.5', 'deiza-liquid', 'deiza-solid', 'deiza-gas', 'deiza-liquid-5.1', 'deiza-liquid-5.5'];
 
 const MODEL_ALIASES = {
@@ -231,7 +238,7 @@ function saveConfig(cfg) {
 }
 
 module.exports = {
-  GAS55_AT, gas55Live,
+  GAS55_AT, gas55Live, isGas55Model, modelSupportsEffort, EFFORTS, effortForModel,
   LIQUID55_AT,
   liquid55Live,
   CONTEXT_LIMITS,

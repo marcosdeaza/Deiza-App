@@ -4,6 +4,8 @@
   else root.DeizaI18nEN = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   return {
+    'GAS 5.5 usa Bajo por defecto. Subir el esfuerzo activa razonamiento extendido y puede tardar y consumir más.': 'GAS 5.5 defaults to Low. Higher effort enables extended thinking and may take longer and use more quota.',
+    'Gas 4.5 no tiene razonamiento extendido: el esfuerzo solo cambia cuánto explora y verifica el agente.': 'Gas 4.5 has no extended thinking: effort only changes how far the agent explores and verifies.',
     'Razonamiento adaptativo, contexto de 1M y visión.': 'Adaptive reasoning, 1M context and vision.',
     'Generación anterior, contexto de 256K y visión.': 'Previous generation, 256K context and vision.',
     'Gas no ve imágenes: cambia a Liquid o Solid 5 si importan.': 'Gas cannot see images: switch to Liquid or Solid 5 if they matter.',

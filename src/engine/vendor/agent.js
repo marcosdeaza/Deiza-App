@@ -20,7 +20,7 @@ const { StringDecoder } = require('string_decoder');
 const { Tools, TOOL_DEFINITIONS, MAX_TOOL_OUTPUT, isCommandRisky, isCommandCatastrophic, previewChange, setSearchAuth } = require('./tools');
 const { Status, C, createLiveLine, createSpinner, formatBytes, formatDuration, createMarkdownStream, printToolCard } = require('./ui');
 const { buildSystemPrompt } = require('./prompt');
-const { isDeizaHost, contextLimit } = require('./config');
+const { isDeizaHost, contextLimit, modelSupportsEffort, EFFORTS, effortForModel, isGas55Model } = require('./config');
 const { getActiveContextTokens } = require('./session');
 const { capuLabel, ensureHandoff } = require('./mascot');
 const { COMPUTER_TOOL_DEFINITIONS, COMPUTER_NAMES, COMPUTER_MUTATING, COMPUTER_VISUAL, computerTarget, describeComputerResult } = require('./computer-tools');
@@ -150,7 +150,7 @@ function createToolCallFilter() {
  *   onChunk(text)                      assistant prose as it streams
  *   onToolProgress({index, name, args}) called as tool-call arguments accumulate
  */
-async function streamCompletion({ apiBase, apiKey, model, messages, tools, onChunk, onToolProgress, onQuota, maxTokens = DEFAULT_MAX_TOKENS, temperature = 0.2, signal }) {
+async function streamCompletion({ apiBase, apiKey, model, effort, messages, tools, onChunk, onToolProgress, onQuota, maxTokens = DEFAULT_MAX_TOKENS, temperature = 0.2, signal }) {
   return new Promise((resolve, reject) => {
     let url;
     try {
@@ -168,6 +168,8 @@ async function streamCompletion({ apiBase, apiKey, model, messages, tools, onChu
       return { ...m, content: parts.join('\n') };
     }) : messages;
     const body = { model, messages: visibleMessages, stream: true, temperature, max_tokens: maxTokens, stream_options: { include_usage: true } };
+    const selectedEffort = effort || (native && isGas55Model(model) ? 'low' : undefined);
+    if ((!native || modelSupportsEffort(model)) && EFFORTS.includes(selectedEffort)) body.reasoning_effort = native && isGas55Model(model) ? selectedEffort : ['ultra', 'max'].includes(selectedEffort) ? 'high' : selectedEffort;
     if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
     const payload = JSON.stringify(body);
 
@@ -1010,6 +1012,7 @@ async function runAgentTurn({ cfg, messages, userInput, confirmCallback, mode = 
         apiBase: cfg.apiBase,
         apiKey: cfg.isCustomEndpoint ? (cfg.endpointKey || '') : cfg.apiKey,
         model: cfg.model,
+        effort: effortForModel(cfg),
         messages,
         tools: toolMode === 'native' ? TOOL_SPECS : null,
         maxTokens: cfg.maxTokens || (isDeizaHost(cfg.apiBase) ? DEIZA_MAX_TOKENS : DEFAULT_MAX_TOKENS),

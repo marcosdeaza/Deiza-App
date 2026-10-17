@@ -50,8 +50,8 @@ const MODELS = {
   'deiza-liquid-5.5': { effort: true, vision: true },
   'deiza-omniscient': { effort: true, vision: true },   // shown as Liquid 5.1
   'deiza-solid-5': { effort: true, vision: true },
-  'deiza-gas': { effort: false, get vision() { return gas55Live(); } },
-  'deiza-gas-5.5': { effort: false, vision: true },
+  'deiza-gas': { get effort() { return gas55Live(); }, get vision() { return gas55Live(); } },
+  'deiza-gas-5.5': { get effort() { return gas55Live(); }, vision: true },
   'deiza-gas-4.5': { effort: false, vision: false },
 };
 const DEFAULT_MODEL = 'deiza-solid-5';
@@ -337,7 +337,7 @@ function streamCompletion(auth, { model = DEFAULT_MODEL, effort, messages, tools
       messages: spec.vision ? messages : stripImages(messages),
       stream: true, temperature: 0.2, max_tokens: maxTokens, stream_options: { include_usage: true },
     };
-    if (spec.effort && EFFORTS[effort]) body.reasoning_effort = EFFORTS[effort].api;
+    if (spec.effort && EFFORTS[effort]) body.reasoning_effort = ['deiza-gas', 'deiza-gas-5.5'].includes(model) ? effort : EFFORTS[effort].api;
     if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
     const payload = JSON.stringify(body);
     let settled = false;
@@ -567,7 +567,7 @@ async function run(msg) {
   const { auth, desktop = {}, turnId } = msg;
   const mode = ['build', 'copilot', 'plan'].includes(msg.mode) ? msg.mode : 'build';
   const model = normModel(msg.model);
-  const effort = EFFORTS[msg.effort] ? msg.effort : DEFAULT_EFFORT;
+  const effort = EFFORTS[msg.effort] ? msg.effort : (['deiza-gas', 'deiza-gas-5.5'].includes(model) && gas55Live() ? 'low' : DEFAULT_EFFORT);
   const E = EFFORTS[effort];
   const messages = Array.isArray(msg.messages) ? msg.messages : [];
   sanitizeHistory(messages);
