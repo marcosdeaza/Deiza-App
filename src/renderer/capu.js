@@ -59,6 +59,9 @@
     e: '#F2FBFF', // rayo
     E: '#86D3F2', // rayo en sombra
     T: '#4FD1C5', // ojos Super Saiyan
+    F: '#C85B68', // faceta iluminada (Solid)
+    u: '#D9C5F2', // vapor lila (Gas)
+    U: '#B79BDE', // vapor lila en sombra (Gas)
   };
 
   // ── silueta base 8×10 (1 píxel = 1 píxel gordo) ─────────────────────────────────────────────
@@ -85,8 +88,8 @@
   const BX = 16;  // borde izquierdo del cuerpo (fino)
   const BY = 8;   // punta del pétalo alto (fino)
 
-  // A frame grid. Scenes that burst out of the stage (fx) get `oy` extra rows above row 0;
-  // drawing code works in raw rows, everything else reads scene coordinates through at().
+  // A frame grid. Scenes that burst out of the stage (fx) and the bigger forms get `oy` extra rows
+  // above row 0. Every drawing helper works in scene coordinates (row 0 = top of the stage).
   function blank(oy) {
     oy = oy || 0;
     const g = [];
@@ -96,6 +99,7 @@
   }
   function at(g, x, y) { const r = g[y + (g.oy || 0)]; return (r && r[x]) || null; }
   function put(g, x, y, c) {
+    y += g.oy || 0;
     if (x < 0 || y < 0 || x >= g[0].length || y >= g.length) return;
     g[y][x] = c === '_' ? null : c;
   }
@@ -113,8 +117,10 @@
   function fill(g, x, y, w, h, c) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(g, x + i, y + j, c); }
   // recolour only the pixels that already have colour `from`
   function tint(g, x, y, w, h, from, to) {
-    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { if (g[y + j] && g[y + j][x + i] === from) g[y + j][x + i] = to; }
+    const oy = g.oy || 0;
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const r = g[y + j + oy]; if (r && r[x + i] === from) r[x + i] = to; }
   }
+  function tintAll(g, from, to) { tint(g, 0, -(g.oy || 0), W, g.length, from, to); }
 
   // Tops at fine resolution (16 wide, 4 tall), drawn above the body block.
   const TOPS = {
@@ -186,10 +192,157 @@
   ];
   const TOP_OFF = { bloom: [-2, -2], wilt: [-4, 0], saiyan: [-3, -8], saiyan2: [-3, -8] };
 
-  // Eye holes (fine coords relative to the body's top-left corner, below the top rows).
-  const EY = 8;   // top row of the eyes (relative to BY)
+  // ── formas: un Capu por familia de modelo ───────────────────────────────────────────────────
+  // Liquid es el Capu de siempre. Gas es un capullito violeta, más pequeño, con una voluta de
+  // vapor sobre el pétalo. Solid es un granate tallado: más grande y ancho, con tres pétalos en
+  // corona, canto iluminado, patas gruesas y vetas de oro. Todas comparten el centro (x = 24) y el
+  // suelo (fila 28), y los ojos guardan la misma separación, así que gafas, prismáticos y lupa
+  // caen siempre sobre la cara.
+
+  // Hair columns removed (Gas) or doubled (Solid) so the Super Saiyan spikes fit the head.
+  function resizeCols(rows, delta, cols) {
+    if (!delta) return rows;
+    const pick = cols.slice(0, Math.abs(delta));
+    return rows.map((r) => r.split('').map((c, i) => (pick.includes(i) ? (delta < 0 ? '' : c + c) : c)).join(''));
+  }
+  const HAIR_COLS = [6, 14, 10, 17];
+
+  const GAS_TOPS = {
+    bud: [
+      'XXXX........',
+      'XXXX........',
+      'XXXX..XXXX..',
+      'XXXX..XXXX..',
+    ],
+    twitch: [
+      '.XXX........',
+      'XXXX........',
+      'XXXX..XXXX..',
+      'XXXX..XXXX..',
+    ],
+    half: [
+      'XXXX........',
+      'XXXX.rr.....',
+      'XXXXrRRrXX..',
+      'XXXXrqRRXXXX',
+    ],
+    bloom: [
+      '..XX......XX....',
+      '.XXXX.rr.XXXX...',
+      'XXXX.rRRr.XXXX..',
+      'XXXXrRqqRrXXXX..',
+      '.XXXrRqRRrXXX...',
+      '..XXXrRRrXXX....',
+    ],
+    wilt: [
+      '................',
+      '................',
+      '.XXXXXX..XXXX...',
+      'XX..XXXXXXXXXXXX',
+    ],
+  };
+
+  const SOLID_TOPS = {
+    bud: [
+      'XXXX................',
+      'XXXX................',
+      'XXXXXX....XXXX......',
+      'XXXXXX....XXXX......',
+      'XXXXXXXX..XXXXXX..XX',
+      'XXXXXXXX..XXXXXX..XX',
+    ],
+    twitch: [
+      '.XXXX...............',
+      'XXXXX...............',
+      'XXXXXX....XXXX......',
+      'XXXXXX....XXXX......',
+      'XXXXXXXX..XXXXXX..XX',
+      'XXXXXXXX..XXXXXX..XX',
+    ],
+    half: [
+      'XXXX................',
+      'XXXXX...............',
+      'XXXXXX.rr.XXXX......',
+      'XXXXXXrRRrXXXX......',
+      'XXXXXXrqRRXXXXXX..XX',
+      'XXXXXXXrRRXXXXXX..XX',
+    ],
+    bloom: [
+      '..XX................XX..',
+      '.XXXX.....rRRr.....XXXX.',
+      'XXXXX...rRRqqRRr...XXXXX',
+      'XXXXX..rRqRRRRqRr..XXXXX',
+      'XXXXXXrRqRqqRRqRrXXXXXXX',
+      '.XXXXXrRRqRRRqRRrXXXXXX.',
+      '..XXXXXrRRqqqRRrXXXXXX..',
+      '...XXXXXXrRRRRrXXXXXX...',
+    ],
+    wilt: [
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '.XXXXXXXXXX..XXXXXX.....',
+      'XX..XXXXXXXXXXXXXXXXXXXX',
+    ],
+  };
+
+  // kintsugi: gold veins on Solid's block, relative to its top-left corner
+  const SOLID_VEINS = [
+    [16, 0, 'y'], [16, 1, 'Y'], [17, 2, 'y'], [17, 3, 'g'], [16, 4, 'Y'], [16, 5, 'y'], [17, 6, 'y'],
+    [2, 10, 'y'], [3, 11, 'Y'], [3, 12, 'y'], [4, 13, 'y'], [5, 14, 'y'],
+  ];
+
+  const FORMS = {
+    liquid: { name: 'liquid', w: 16, bh: 14, th: 4, eyeY: 8, eyeL: 4, notch: 6, legW: 2, side: 1 },
+    gas: {
+      name: 'gas', w: 12, bh: 10, th: 4, eyeY: 6, eyeL: 2, notch: 4, legW: 2, side: 1,
+      tops: GAS_TOPS, topOff: { bloom: [-2, -2], wilt: [-4, 0], saiyan: [-3, -8], saiyan2: [-3, -8] },
+      pal: { X: '#9C6CCB', x: '#7A4CA8', R: '#EEDCFB', r: '#C8A1EC', q: '#9361C6' },
+      decor(g, x0, y0, bt, sq, top) {
+        // a wisp of vapour curls up from the tall petal
+        if (top !== 'bud' && top !== 'twitch' && top !== 'half') return;
+        const t = top === 'twitch' ? 1 : 0;
+        put(g, x0 + 2 + t, y0 - 2, 'u'); put(g, x0 + 1 + t, y0 - 3, 'u'); put(g, x0 + 2 + t, y0 - 4, 'U'); put(g, x0 + 3 + t, y0 - 5, 'U');
+      },
+    },
+    solid: {
+      name: 'solid', w: 20, bh: 16, th: 6, eyeY: 10, eyeL: 6, notch: 8, legW: 4, side: 2, oy: 8,
+      tops: SOLID_TOPS, topOff: { bloom: [-2, -2], wilt: [-4, 0], saiyan: [-3, -6], saiyan2: [-3, -6] },
+      pal: { X: '#A9333F', x: '#7B2130', F: '#C9525F' },
+      decor(g, x0, y0, bt, sq) {
+        // the lit edge of the cut stone and its gold veins
+        tint(g, x0, bt + 1, 2, this.bh - 3 - sq, 'X', 'F');
+        for (const [i, j, c] of SOLID_VEINS) if (j < this.bh - sq && at(g, x0 + i, bt + j) === 'X') put(g, x0 + i, bt + j, c);
+      },
+    },
+  };
+  for (const f of Object.values(FORMS)) {
+    const x0 = 24 - f.w / 2;
+    const by = 28 - (f.th + f.bh + 2);
+    // static anchors: where this form's body sits with no dx/dy (BX/BY are the Liquid ones)
+    f.a = { x0, by, rx: x0 + f.w - 16, fx: x0 + (f.w - 16) / 2, fy: by + f.eyeY - 8, yoff: by - BY };
+    if (f.tops) {
+      const d = f.w - 16;
+      f.tops.saiyan = resizeCols(TOPS.saiyan, d, HAIR_COLS);
+      f.tops.saiyan2 = resizeCols(TOPS.saiyan2, d, HAIR_COLS);
+    }
+  }
+  // The form being drawn (frames are drawn synchronously, one at a time) and the one before it,
+  // which only the evolve scene uses.
+  let F = FORMS.liquid;
+  let A = F.a;
+  let FPREV = F;
+  function useForm(name) { F = FORMS[name] || FORMS.liquid; A = F.a; return F; }
+  /** Model id → form: Gas, Solid, and everything else (Liquid / Omniscient) is the standard Capu. */
+  function formFor(model) {
+    const m = String(model || '').toLowerCase();
+    return /gas/.test(m) ? 'gas' : /solid/.test(m) ? 'solid' : 'liquid';
+  }
+
+  // Eye holes (fine coords relative to the body's top-left corner). Every form keeps them 6 apart.
   function eyeRects(kind) {
-    const L = 4, R = 10;
+    const L = F.eyeL, R = L + 6, EY = F.eyeY;
     switch (kind) {
       case 'closed': return [[L, EY + 3, 2, 1], [R, EY + 3, 2, 1]];
       case 'half': return [[L, EY + 2, 2, 2], [R, EY + 2, 2, 2]];
@@ -205,7 +358,8 @@
     }
   }
   function happyEyes(g, x0, y0) {
-    for (const ex of [3, 9]) {
+    const EY = F.eyeY;
+    for (const ex of [F.eyeL - 1, F.eyeL + 5]) {
       put(g, x0 + ex, y0 + EY + 2, '_');
       put(g, x0 + ex + 1, y0 + EY + 1, '_');
       put(g, x0 + ex + 2, y0 + EY + 1, '_');
@@ -225,39 +379,50 @@
     type1: ['l', 'L', 'L'],
     type2: ['l', 'L'],
   };
+  // arm heights, from the Liquid body's top; every form keeps its hands at the same height
   const ARM_Y = { down: 14, out: 15, up: 11, high: 9, hold: 16, wave1: 11, wave2: 10, type1: 17, type2: 17 };
 
   /**
    * o: { dx, dy, top, eyes, armL, armR, squash (0-2 fine px), legs: 'step'|'none' }
-   * Returns the body's origin so props can be placed next to it.
+   * Draws the current form and returns its anchors, so props land in the right place whatever
+   * its size: x0/y0 real top-left corner, r right edge, rx/fx the Liquid-sized frame aligned to
+   * the right edge / the face, fy the face row (fy + 8 = top of the eyes), bt top of the block,
+   * hy the height the hands work at, top the resting y0, notch the gap between the petals.
    */
   function body(g, o) {
     o = o || {};
-    const x0 = BX + (o.dx || 0);
+    const f = F;
+    const x0 = A.x0 + (o.dx || 0);
     const sq = o.squash || 0;
-    const y0 = BY + (o.dy || 0) + sq;
+    const y0 = A.by + (o.dy || 0) + sq;
+    const bt = y0 + f.th;
     const tk = o.top || 'bud';
-    const off = TOP_OFF[tk] || [0, 0];
-    stamp(g, x0 + off[0], y0 + off[1], TOPS[tk]);
-    fill(g, x0, y0 + 4, 16, 14 - sq, 'X');
+    const tops = f.tops || TOPS;
+    const off = (f.topOff || TOP_OFF)[tk] || [0, 0];
+    stamp(g, x0 + off[0], y0 + off[1], tops[tk] || tops.bud);
+    fill(g, x0, bt, f.w, f.bh - sq, 'X');
     // soft shade on the right edge: a monolith has a side
-    fill(g, x0 + 15, y0 + 5, 1, 12 - sq, 'x');
-    const legY = y0 + 18 - sq;
+    fill(g, x0 + f.w - f.side, bt + 1, f.side, f.bh - 2 - sq, 'x');
+    const legY = bt + f.bh - sq;
     if (o.legs !== 'none') {
       const stepL = o.legs === 'stepL' ? 1 : 0;
       const stepR = o.legs === 'step' || o.legs === 'stepR' ? 1 : 0;
-      fill(g, x0 + 2, legY - stepL, 2, 2, 'X');
-      fill(g, x0 + 12, legY - stepR, 2, 2, 'X');
+      fill(g, x0 + 2, legY - stepL, f.legW, 2, 'X');
+      fill(g, x0 + f.w - 2 - f.legW, legY - stepR, f.legW, 2, 'X');
     }
-    const ey = y0 - sq;
-    if (o.eyes === 'happy') happyEyes(g, x0, ey + sq);
-    else for (const [ex, eyy, w, h] of eyeRects(o.eyes)) fill(g, x0 + ex, ey + eyy + sq, w, h, '_');
+    if (f.decor) f.decor(g, x0, y0, bt, sq, tk);
+    if (o.eyes === 'happy') happyEyes(g, x0, y0);
+    else if (o.eyes !== 'none') for (const [ex, eyy, w, h] of eyeRects(o.eyes)) fill(g, x0 + ex, y0 + eyy, w, h, '_');
+    const hy = y0 - A.yoff;
     if (o.armL) {
       const s = LEAF[o.armL];
-      stamp(g, x0 - s[0].length, y0 + ARM_Y[o.armL], s, true);
+      stamp(g, x0 - s[0].length, hy + ARM_Y[o.armL], s, true);
     }
-    if (o.armR) stamp(g, x0 + 16, y0 + ARM_Y[o.armR], LEAF[o.armR]);
-    return { x0, y0 };
+    if (o.armR) stamp(g, x0 + f.w, hy + ARM_Y[o.armR], LEAF[o.armR]);
+    return {
+      x0, y0, w: f.w, r: x0 + f.w, rx: x0 + f.w - 16, fx: x0 + (f.w - 16) / 2, fy: y0 + f.eyeY - 8,
+      bt, hy, top: A.by, notch: x0 + f.notch,
+    };
   }
 
   // ── props (píxel fino) ──────────────────────────────────────────────────────────────────────
@@ -374,6 +539,26 @@
     dotDim: ['ww', 'ww'],
   };
 
+  // Head props follow the width of the head: middle columns doubled (Solid) or dropped (Gas).
+  const MID_COLS = [7, 8, 6, 9];
+  const GOGGLE_COLS = [6, 7, 14, 15];
+  function onHead(g, b, rows, y, cols) {
+    const s = resizeCols(rows, b.w - rows[0].length, cols || MID_COLS);
+    stamp(g, b.x0 + (b.w - s[0].length) / 2, y, s);
+  }
+  // headphones as wide as the head, with arms long enough to reach the ear cups
+  function phones(w, h) {
+    const n = w + 4;
+    const rows = [
+      `....${'t'.repeat(n - 8)}....`,
+      `..tt${'d'.repeat(n - 8)}tt..`,
+      `.tdd${'.'.repeat(n - 8)}ddt.`,
+      `.dd${'.'.repeat(n - 6)}dd.`,
+    ];
+    while (rows.length < h) rows.push(`.d${'.'.repeat(n - 4)}d.`);
+    return rows;
+  }
+
   // ── escenas ─────────────────────────────────────────────────────────────────────────────────
   // SCENES[name] = { loop, frames: [[ms, draw(g)]] }
   const S = {};
@@ -418,7 +603,7 @@
 
   // pensando: mira arriba y se encienden tres puntos
   const dots = (n) => (g, b) => {
-    for (let i = 0; i < 3; i++) stamp(g, b.x0 + 19 + i * 4, b.y0 + 2 - i, i < n ? P.dot : P.dotDim);
+    for (let i = 0; i < 3; i++) stamp(g, b.rx + 19 + i * 4, b.y0 + 2 - i, i < n ? P.dot : P.dotDim);
   };
   S.thinking = { loop: true, frames: [
     [360, pose({ eyes: 'upright' }, dots(0))],
@@ -435,18 +620,20 @@
   // tecleando en un portátil lleno de pegatinas; la pantalla le ilumina la cara
   function typing(k, eyes) {
     return (g) => {
-      const b = body(g, { eyes: eyes || 'open', dy: k % 4 === 1 ? 1 : 0 });
+      // a small Capu climbs up a little so its eyes clear the lid
+      const lift = Math.max(0, A.fy - BY);
+      const b = body(g, { eyes: eyes || 'open', dy: (k % 4 === 1 ? 1 : 0) - lift });
       const ly = BY + 12;
       // screen light on the face, just above the lid (only on the body, never over the eyes)
-      if (k % 3 !== 2) tint(g, b.x0 + 1, ly - 1, 14, 1, 'X', 'r');
-      if (k % 3 === 0) tint(g, b.x0 + 3, ly - 2, 10, 1, 'X', 'r');
-      stamp(g, b.x0 - 1, ly, P.laptop);
-      stamp(g, b.x0 - 3, ly + 7, P.laptopBase);
+      if (k % 3 !== 2) tint(g, b.x0 + 1, ly - 1, b.w - 2, 1, 'X', 'r');
+      if (k % 3 === 0) tint(g, b.x0 + 3, ly - 2, b.w - 6, 1, 'X', 'r');
+      stamp(g, b.fx - 1, ly, P.laptop);
+      stamp(g, b.fx - 3, ly + 7, P.laptopBase);
       // the terminal sticker's cursor blinks
-      if (k % 2) put(g, b.x0 + 12, ly + 3, 'K');
+      if (k % 2) put(g, b.fx + 12, ly + 3, 'K');
       // leaf hands reaching the keys, alternating
-      stamp(g, b.x0 - 3, ly + 4 + (k % 2), ['LL', '.l']);
-      stamp(g, b.x0 + 17, ly + 4 + ((k + 1) % 2), ['LL', 'l.']);
+      stamp(g, b.fx - 3, ly + 4 + (k % 2), ['LL', '.l']);
+      stamp(g, b.fx + 17, ly + 4 + ((k + 1) % 2), ['LL', 'l.']);
     };
   }
   S.typing = { loop: true, frames: [
@@ -460,11 +647,11 @@
     return (g) => {
       const b = body(g, { eyes: eyes || 'open', armR: sip ? 'high' : 'out' });
       if (sip) {
-        stamp(g, b.x0 + 18, BY - 2, P.mug);
+        stamp(g, b.rx + 18, b.top - 2, P.mug);
       } else {
-        stamp(g, b.x0 + 19, BY + 10, P.mug);
-        stamp(g, b.x0 + 20, BY + 3 - (k % 2), k % 2 ? P.steam1 : P.steam2);
-        stamp(g, b.x0 + 24, BY + 4 - (k % 2), k % 2 ? P.steam2 : P.steam1);
+        stamp(g, b.rx + 19, BY + 10, P.mug);
+        stamp(g, b.rx + 20, BY + 3 - (k % 2), k % 2 ? P.steam1 : P.steam2);
+        stamp(g, b.rx + 24, BY + 4 - (k % 2), k % 2 ? P.steam2 : P.steam1);
       }
     };
   }
@@ -479,43 +666,43 @@
     return (g) => {
       if (stage === 'hold') {
         const b = body(g, { armR: 'hold' });
-        stamp(g, b.x0 + 19, BY + 9, P.can);
+        stamp(g, b.rx + 19, BY + 9, P.can);
       } else if (stage === 'lift') {
         const b = body(g, { armR: 'high', eyes: 'upright' });
-        stamp(g, b.x0 + 18, BY - 4, P.can);
+        stamp(g, b.rx + 18, b.top - 4, P.can);
       } else if (stage === 'pour') {
         const b = body(g, { armR: 'high', eyes: 'closed' });
-        stamp(g, b.x0 + 5, BY - 6, P.canPour);
+        stamp(g, b.notch - 1, b.top - 6, P.canPour);
         // drops fall into the notch between the petals
-        put(g, b.x0 + 6, BY - 2 + (k % 2) * 2, 'Y');
-        put(g, b.x0 + 7, BY + 1 - (k % 2), 'Y');
-        put(g, b.x0 + 6, BY + 2, 'y');
+        put(g, b.notch, b.top - 2 + (k % 2) * 2, 'Y');
+        put(g, b.notch + 1, b.top + 1 - (k % 2), 'Y');
+        put(g, b.notch, b.top + 2, 'y');
       } else if (stage === 'buzz') {
         const j = k % 2 ? 1 : -1;
         const b = body(g, { dx: j, eyes: 'wide', armL: 'up', armR: 'up' });
-        stamp(g, b.x0 - 8, BY + 2 + (k % 2), P.spark);
-        stamp(g, b.x0 + 21, BY + 1 + ((k + 1) % 2), P.spark);
-        stamp(g, BX + 22, BY + 16, P.canCrushed);
+        stamp(g, b.x0 - 8, b.top + 2 + (k % 2), P.spark);
+        stamp(g, b.rx + 21, b.top + 1 + ((k + 1) % 2), P.spark);
+        stamp(g, A.rx + 22, BY + 16, P.canCrushed);
       }
     };
   }
   S.can = { loop: false, frames: [
-    [600, can('hold')], [110, (g) => { const b = body(g, { armR: 'hold', eyes: 'closed' }); stamp(g, b.x0 + 19, BY + 9, P.can); }],
+    [600, can('hold')], [110, (g) => { const b = body(g, { armR: 'hold', eyes: 'closed' }); stamp(g, b.rx + 19, BY + 9, P.can); }],
     [400, can('hold')], [420, can('lift')],
     [220, can('pour', 0)], [220, can('pour', 1)], [220, can('pour', 0)], [220, can('pour', 1)],
     [80, can('buzz', 0)], [80, can('buzz', 1)], [80, can('buzz', 0)], [80, can('buzz', 1)],
     [80, can('buzz', 0)], [80, can('buzz', 1)], [80, can('buzz', 0)], [80, can('buzz', 1)],
-    [700, (g) => { const b = body(g, { eyes: 'wide' }); stamp(g, b.x0 + 22, BY + 16, P.canCrushed); }],
+    [700, (g) => { const b = body(g, { eyes: 'wide' }); stamp(g, b.rx + 22, BY + 16, P.canCrushed); }],
   ] };
 
   // pato de goma: le cuenta el bug
   function duck(k, eyes, talk) {
     return (g) => {
       const b = body(g, { eyes: eyes || 'right', armR: talk ? (k % 2 ? 'up' : 'out') : 'down' });
-      stamp(g, b.x0 + 22, BY + 11, P.duck);
+      stamp(g, b.rx + 22, BY + 11, P.duck);
       if (talk) {
-        stamp(g, b.x0 + 18, BY + 1, k % 2 ? P.dot : P.dotDim);
-        stamp(g, b.x0 + 22, BY - 1, k % 2 ? P.dotDim : P.dot);
+        stamp(g, b.rx + 18, b.top + 1, k % 2 ? P.dot : P.dotDim);
+        stamp(g, b.rx + 22, b.top - 1, k % 2 ? P.dotDim : P.dot);
       }
     };
   }
@@ -530,8 +717,8 @@
     return (g) => {
       const look = ['left', 'open', 'right', 'open'][k % 4];
       const b = body(g, { eyes: look, armR: 'out' });
-      const lx = b.x0 + 7;
-      const ly = BY + 9;
+      const lx = b.fx + 7;
+      const ly = A.fy + 9;
       // magnified eye: fill the lens with body and cut a big eye
       fill(g, lx + 1, ly + 1, 5, 5, 'X');
       fill(g, lx + 2 + (look === 'left' ? -1 : look === 'right' ? 1 : 0), ly + 1, 3, 5, '_');
@@ -545,9 +732,9 @@
   function waiting(k, fillN) {
     return (g) => {
       const b = body(g, { eyes: k % 5 === 4 ? 'closed' : 'upright', legs: k % 2 ? 'stepR' : undefined });
-      stamp(g, b.x0 + 18, BY - 2, P.bar);
-      fill(g, b.x0 + 20, BY, Math.min(10, fillN), 1, 'G');
-      fill(g, b.x0 + 20, BY - 1, Math.min(10, fillN), 1, 'G');
+      stamp(g, b.rx + 18, b.top - 2, P.bar);
+      fill(g, b.rx + 20, b.top, Math.min(10, fillN), 1, 'G');
+      fill(g, b.rx + 20, b.top - 1, Math.min(10, fillN), 1, 'G');
     };
   }
   S.waiting = { loop: true, frames: [] };
@@ -559,10 +746,10 @@
     return (g) => {
       const bob = k % 2;
       const b = body(g, { eyes: k === 5 ? 'closed' : 'happy', dy: bob });
-      stamp(g, b.x0 - 2, BY - 2 + bob, P.phones);
-      stamp(g, b.x0 - 3, BY + 7 + bob, P.cupL);
-      stamp(g, b.x0 + 15, BY + 7 + bob, P.cupL, true);
-      stamp(g, b.x0 + 21 + (k % 3), BY + 2 - (k % 3), k % 2 ? P.note1 : P.note2);
+      stamp(g, b.x0 - 2, b.top - 2 + bob, phones(b.w, Math.max(5, A.fy - A.by + 5)));
+      stamp(g, b.x0 - 3, A.fy + 7 + bob, P.cupL);
+      stamp(g, b.r - 1, A.fy + 7 + bob, P.cupL, true);
+      stamp(g, b.rx + 21 + (k % 3), b.top + 2 - (k % 3), k % 2 ? P.note1 : P.note2);
     };
   }
   S.focus = { loop: true, frames: [[330, focus(0)], [330, focus(1)], [330, focus(2)], [330, focus(3)], [330, focus(4)], [150, focus(5)]] };
@@ -571,12 +758,12 @@
   function fine(k) {
     return (g) => {
       const b = body(g, { eyes: k === 7 ? 'closed' : 'squint', armR: 'out' });
-      stamp(g, b.x0 + 19, BY + 10, P.mug);
+      stamp(g, b.rx + 19, BY + 10, P.mug);
       const fl = [P.flame1, P.flame2, P.flame3];
       stamp(g, b.x0 - 9, BY + 14, fl[k % 3]);
       stamp(g, b.x0 - 4, BY + 14, fl[(k + 1) % 3]);
-      stamp(g, b.x0 + 29, BY + 14, fl[(k + 2) % 3]);
-      if (k % 4 === 0) stamp(g, b.x0 + 20, BY + 3, P.steam1);
+      stamp(g, b.rx + 29, BY + 14, fl[(k + 2) % 3]);
+      if (k % 4 === 0) stamp(g, b.rx + 20, BY + 3, P.steam1);
     };
   }
   S.fine = { loop: true, frames: [] };
@@ -585,8 +772,8 @@
   // error breve: gota de sudor y exclamación
   S.oops = { loop: false, frames: [
     [120, pose({ eyes: 'wide', dy: -1 })],
-    [500, pose({ eyes: 'wide' }, (g, b) => { stamp(g, b.x0 + 18, BY - 1, P.bang); stamp(g, b.x0 - 4, BY + 6, P.drop); })],
-    [500, pose({ eyes: 'squint' }, (g, b) => { stamp(g, b.x0 - 4, BY + 8, P.drop); })],
+    [500, pose({ eyes: 'wide' }, (g, b) => { stamp(g, b.rx + 18, b.top - 1, P.bang); stamp(g, b.x0 - 4, A.fy + 6, P.drop); })],
+    [500, pose({ eyes: 'squint' }, (g, b) => { stamp(g, b.x0 - 4, A.fy + 8, P.drop); })],
     [300, pose({ eyes: 'half' })],
   ] };
 
@@ -597,7 +784,7 @@
     [200, pose({ top: 'bloom', eyes: 'happy', dy: -5, armL: 'up', armR: 'up' })],
     [140, pose({ top: 'bloom', eyes: 'happy', dy: -2, armL: 'high', armR: 'high' })],
     [120, pose({ top: 'bloom', eyes: 'happy', squash: 1, armL: 'out', armR: 'out' })],
-    [900, pose({ top: 'bloom', eyes: 'happy' }, (g, b) => stamp(g, b.x0 + 19, BY - 1, P.heart))],
+    [900, pose({ top: 'bloom', eyes: 'happy' }, (g, b) => stamp(g, b.rx + 19, b.top - 1, P.heart))],
     [600, pose({ top: 'bloom', eyes: 'open' })],
     [220, pose({ top: 'half', eyes: 'open' })],
   ] };
@@ -606,9 +793,9 @@
   function wilt(k) {
     return (g) => {
       const b = body(g, { top: 'wilt', eyes: k === 3 ? 'closed' : 'half', squash: 2, armR: 'hold' });
-      stamp(g, b.x0 + 19, BY + 12, P.paper);
-      stamp(g, b.x0 + 23 + (k % 2), BY + 9 + (k % 2), P.pencil);
-      stamp(g, BX - 7, BY + 16, P.canCrushed);
+      stamp(g, b.rx + 19, BY + 12, P.paper);
+      stamp(g, b.rx + 23 + (k % 2), BY + 9 + (k % 2), P.pencil);
+      stamp(g, A.x0 - 7, BY + 16, P.canCrushed);
     };
   }
   S.wilt = { loop: true, frames: [[380, wilt(0)], [380, wilt(1)], [380, wilt(0)], [140, wilt(3)], [380, wilt(1)]] };
@@ -617,7 +804,7 @@
   function sleep(k) {
     return (g) => {
       const b = body(g, { eyes: 'closed', squash: k % 2 ? 1 : 0 });
-      const zs = [[b.x0 + 18, BY + 4, P.z1], [b.x0 + 22, BY - 1, P.z2], [b.x0 + 27, BY - 7, P.z3]];
+      const zs = [[b.rx + 18, b.top + 4, P.z1], [b.rx + 22, b.top - 1, P.z2], [b.rx + 27, b.top - 7, P.z3]];
       for (let i = 0; i <= k % 3; i++) stamp(g, zs[i][0], zs[i][1], zs[i][2]);
     };
   }
@@ -725,9 +912,10 @@
   function build(k) {
     return (g) => {
       const b = body(g, { eyes: k % 2 ? 'squint' : 'open', armR: k % 2 ? 'out' : 'high', dy: k % 2 ? 1 : 0 });
-      stamp(g, b.x0, b.y0 - 2, P.hardhat);
-      stamp(g, b.x0 + 17, b.y0 + (k % 2 ? 9 : 1), k % 2 ? P.hammerDown : P.hammerUp);
-      if (k % 2) { put(g, b.x0 + 22, b.y0 + 14, 'Y'); put(g, b.x0 + 24, b.y0 + 12, 'Y'); }
+      for (let y = b.y0 - 6; y < b.bt - 6; y++) for (let x = b.x0 - 2; x < b.r + 2; x++) put(g, x, y, '_');
+      onHead(g, b, P.hardhat, b.bt - 6);
+      stamp(g, b.rx + 17, b.hy + (k % 2 ? 9 : 1), k % 2 ? P.hammerDown : P.hammerUp);
+      if (k % 2) { put(g, b.rx + 22, b.hy + 14, 'Y'); put(g, b.rx + 24, b.hy + 12, 'Y'); }
     };
   }
   S.build = { loop: false, frames: [[260, build(0)], [160, build(1)], [260, build(2)], [160, build(3)], [260, build(4)], [160, build(5)], [500, build(0)]] };
@@ -736,10 +924,10 @@
   function copilot(k) {
     return (g) => {
       const b = body(g, { eyes: k === 2 ? 'happy' : 'open', armR: k >= 2 ? 'up' : 'out' });
-      for (let y = 0; y < 4; y++) for (let x = -2; x < 20; x++) put(g, b.x0 + x, b.y0 + y, '_');
-      stamp(g, b.x0, b.y0, P.pilotcap);
-      stamp(g, b.x0, b.y0 + 4, P.goggles);
-      if (k >= 2) stamp(g, b.x0 + 18, b.y0 + 5, ['LL', 'LL', 'l.']);
+      for (let y = b.y0 - 6; y < b.bt; y++) for (let x = b.x0 - 2; x < b.r + 4; x++) put(g, x, y, '_');
+      onHead(g, b, P.pilotcap, b.bt - 4);
+      onHead(g, b, P.goggles, b.fy + 4, GOGGLE_COLS);
+      if (k >= 2) stamp(g, b.rx + 18, b.hy + 5, ['LL', 'LL', 'l.']);
     };
   }
   S.copilot = { loop: false, frames: [[300, copilot(0)], [300, copilot(1)], [700, copilot(2)], [500, copilot(3)]] };
@@ -749,8 +937,8 @@
     return (g) => {
       const eyes = ['downright', 'down', 'downright', 'down'][k % 4];
       const b = body(g, { eyes, armL: 'out', armR: 'out' });
-      stamp(g, b.x0 + 1, b.y0 + 11, P.blueprint);
-      if (k % 2) put(g, b.x0 + 6 + k, b.y0 + 13 + (k % 3), 'r');
+      stamp(g, b.fx + 1, b.fy + 11, P.blueprint);
+      if (k % 2) put(g, b.fx + 6 + k, b.fy + 13 + (k % 3), 'r');
     };
   }
   S.plan = { loop: false, frames: [[420, plan(0)], [420, plan(1)], [420, plan(2)], [420, plan(3)], [300, plan(4)]] };
@@ -759,8 +947,8 @@
   function low(k) {
     return (g) => {
       const b = body(g, { eyes: 'half' });
-      const yy = [b.y0 - 8, b.y0 - 4, b.y0, b.y0 + 4, b.y0 + 8, b.y0 + 8][Math.min(k, 5)];
-      stamp(g, b.x0, yy, P.shades);
+      const yy = [b.fy - 8, b.fy - 4, b.fy, b.fy + 4, b.fy + 8, b.fy + 8][Math.min(k, 5)];
+      stamp(g, b.fx, yy, P.shades);
     };
   }
   S.low = { loop: false, frames: [[140, low(0)], [140, low(1)], [140, low(2)], [140, low(3)], [900, low(4)], [300, low(5)]] };
@@ -772,9 +960,10 @@
   function high(k, ultra) {
     return (g) => {
       const b = body(g, { eyes: ultra ? 'wide' : 'squint', armL: k % 2 ? 'up' : 'down', armR: k % 2 ? 'up' : 'down' });
-      stamp(g, b.x0, b.y0 + 5, P.headband);
-      stamp(g, b.x0 - 3, b.y0 + 5 + (k % 2), k % 2 ? P.tailA : P.tailB);
-      if (ultra) { stamp(g, b.x0 - 8, b.y0 + 2 + (k % 2), P.spark); stamp(g, b.x0 + 21, b.y0 + 3 - (k % 2), P.spark); }
+      const hb = Math.max(b.bt, b.fy + 5);
+      onHead(g, b, P.headband, hb);
+      stamp(g, b.x0 - 3, hb + (k % 2), k % 2 ? P.tailA : P.tailB);
+      if (ultra) { stamp(g, b.x0 - 8, b.fy + 2 + (k % 2), P.spark); stamp(g, b.rx + 21, b.fy + 3 - (k % 2), P.spark); }
     };
   }
   S.high = { loop: false, frames: [[220, high(0)], [220, high(1)], [220, high(2)], [220, high(3)], [500, high(4)]] };
@@ -786,11 +975,11 @@
   const SSJ_OY = 18;
   const hash = (a, b) => (((a + 11) * 73856093) ^ ((b + 7) * 19349663)) >>> 0;
   const tri = (u) => 1 - Math.abs((u - Math.floor(u)) * 2 - 1);
-  const sp = (g, x, y, c) => put(g, x, y + SSJ_OY, c);   // put in scene coordinates
+  const sp = put;
 
   // the flame, in scene coordinates: power 0-1 grows it, k moves the tongues
   function flameMask(k, power) {
-    const cx = BX + 7.5, cy = 16;
+    const cx = BX + 7.5, cy = (A.by + 28) / 2 - 2;
     const rx = 21 * power, ryUp = 22 * power, ryDown = 17;
     const tongues = 14 * power;
     const m = [];
@@ -885,7 +1074,7 @@
 
   function ssjCharge(k) {
     return (g) => {
-      const o = { dy: SSJ_OY, dx: k === 0 ? 0 : (k % 2 ? 1 : -1), squash: k === 0 ? 2 : 1, eyes: 'squint', armL: 'down', armR: 'down' };
+      const o = { dx: k === 0 ? 0 : (k % 2 ? 1 : -1), squash: k === 0 ? 2 : 1, eyes: 'squint', armL: 'down', armR: 'down' };
       if (k >= 3) { const sh = blank(SSJ_OY); body(sh, o); paintAura(g, k, 0.14 + 0.07 * (k - 3), sh); }
       // energy gathering: sparks spiral in towards Capu
       for (let j = 0; j < 10; j++) {
@@ -897,13 +1086,13 @@
       for (const [x, i] of [[8, 0], [12, 1], [36, 2], [41, 3]]) sp(g, x, 27 - Math.max(0, k - 1 - (i % 2)), 't');
       if (k >= 1) { sp(g, 12, 27, 'w'); sp(g, 13, 26, 'w'); sp(g, 34, 27, 'w'); sp(g, 33, 26, 'w'); }
       const b = body(g, o);
-      if (k === 3 || k === 5) tint(g, b.x0 - 1, b.y0, 18, 4, 'X', 'Y');
+      if (k === 3 || k === 5) tint(g, b.x0 - 1, b.y0, b.w + 2, b.bt - b.y0, 'X', 'Y');
     };
   }
 
   function ssjBurst(k) {
     return (g) => {
-      const o = { dy: SSJ_OY, top: 'saiyan', eyes: 'wide', armL: 'down', armR: 'down' };
+      const o = { top: 'saiyan', eyes: 'wide', armL: 'down', armR: 'down' };
       const sh = blank(SSJ_OY); body(sh, o);
       paintAura(g, k, k === 0 ? 0.85 : 1.08, sh, k === 0);
       // shockwave: rays out to the edges of the stage
@@ -920,7 +1109,7 @@
 
   function ssjFull(k) {
     return (g) => {
-      const o = { dy: SSJ_OY, top: (k >> 1) % 2 ? 'saiyan2' : 'saiyan', eyes: 'open', armL: 'down', armR: 'down' };
+      const o = { top: (k >> 1) % 2 ? 'saiyan2' : 'saiyan', eyes: 'open', armL: 'down', armR: 'down' };
       const sh = blank(SSJ_OY); body(sh, o);
       paintAura(g, k, 1, sh);
       zaps(g, k, 3);
@@ -932,12 +1121,12 @@
 
   function ssjDown(k) {
     return (g) => {
-      const o = { dy: SSJ_OY, top: k === 0 ? 'saiyan' : 'bud', eyes: ['open', 'half', 'closed', 'open'][k], armL: k < 2 ? 'down' : undefined, armR: k < 2 ? 'down' : undefined, squash: k === 2 ? 1 : 0 };
+      const o = { top: k === 0 ? 'saiyan' : 'bud', eyes: ['open', 'half', 'closed', 'open'][k], armL: k < 2 ? 'down' : undefined, armR: k < 2 ? 'down' : undefined, squash: k === 2 ? 1 : 0 };
       if (k < 2) { const sh = blank(SSJ_OY); body(sh, o); paintAura(g, k, k === 0 ? 0.55 : 0.22, sh); }
       const b = body(g, o);
       if (k === 0) tealEyes(g, b);
-      if (k === 1) tint(g, b.x0 - 1, b.y0, 18, 4, 'X', 'Y');
-      if (k >= 1) { stamp(g, b.x0 + 1, b.y0 - 6 + k, P.steam1); stamp(g, b.x0 + 12, b.y0 - 5 + k, P.steam2); }
+      if (k === 1) tint(g, b.x0 - 1, b.y0, b.w + 2, b.bt - b.y0, 'X', 'Y');
+      if (k >= 1) { stamp(g, b.x0 + 1, b.y0 - 6 + k, P.steam1); stamp(g, b.r - 4, b.y0 - 5 + k, P.steam2); }
     };
   }
 
@@ -954,17 +1143,18 @@
   function listen(k) {
     return (g) => {
       const b = body(g, { eyes: k % 6 === 5 ? 'closed' : 'upright', armR: 'high' });
-      stamp(g, b.x0 + 16, b.y0 + 4, P.ear);
-      if (k % 2 === 0) stamp(g, b.x0 + 21, b.y0 + 5, P.arc1);
-      stamp(g, b.x0 + 23, b.y0 + 4, k % 2 ? P.arc2 : P.arc1);
+      const ey = Math.max(b.bt, b.fy + 4);
+      stamp(g, b.r, ey, P.ear);
+      if (k % 2 === 0) stamp(g, b.rx + 21, ey + 1, P.arc1);
+      stamp(g, b.rx + 23, ey, k % 2 ? P.arc2 : P.arc1);
     };
   }
   S.listen = { loop: true, frames: [[300, listen(0)], [300, listen(1)], [300, listen(2)], [300, listen(3)], [300, listen(4)], [140, listen(5)]] };
   function notes(k) {
     return (g) => {
       const b = body(g, { eyes: 'downright', armR: 'out' });
-      stamp(g, b.x0 + 19, b.y0 + 12, P.paper);
-      stamp(g, b.x0 + 23 + (k % 2), b.y0 + 9 + (k % 2), P.pencil);
+      stamp(g, b.rx + 19, b.hy + 12, P.paper);
+      stamp(g, b.rx + 23 + (k % 2), b.hy + 9 + (k % 2), P.pencil);
     };
   }
   S.notes = { loop: false, frames: [[220, notes(0)], [220, notes(1)], [220, notes(0)], [220, notes(1)], [220, notes(0)], [400, notes(1)]] };
@@ -973,8 +1163,8 @@
   function gas(k) {
     return (g) => {
       const b = body(g, { eyes: 'right', dx: 2, legs: k % 2 ? 'stepL' : 'stepR' });
-      for (const [yy, len] of [[6, 8], [10, 11], [14, 7]]) fill(g, b.x0 - 4 - len - (k % 2) * 2, b.y0 + yy, len, 1, 'w');
-      stamp(g, b.x0 - 6 - (k % 3), b.y0 + 17, ['ZZ', 'Z.']);
+      for (const [yy, len] of [[0.14, 8], [0.43, 11], [0.71, 7]]) fill(g, b.x0 - 4 - len - (k % 2) * 2, b.bt + Math.round(F.bh * yy), len, 1, 'w');
+      stamp(g, b.x0 - 6 - (k % 3), BY + 17, ['ZZ', 'Z.']);
     };
   }
   S.gas = { loop: false, frames: [[110, gas(0)], [110, gas(1)], [110, gas(2)], [110, gas(3)], [110, gas(4)], [110, gas(5)], [300, pose({ eyes: 'happy' })]] };
@@ -982,8 +1172,8 @@
     return (g) => {
       const b = body(g, { eyes: 'happy', dy: k % 2 ? -1 : 0, armL: 'out', armR: 'out' });
       const wave = ['..WW......WW......WW......WW..', '.WBBW....WBBW....WBBW....WBBW.', 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'];
-      stamp(g, b.x0 - 7 - (k % 4) * 2, b.y0 + 17 - (k % 2 ? -1 : 0), wave);
-      if (k % 2) { put(g, b.x0 - 3, b.y0 + 12, 'B'); put(g, b.x0 + 19, b.y0 + 11, 'B'); }
+      stamp(g, b.x0 - 7 - (k % 4) * 2, BY + 17, wave);
+      if (k % 2) { put(g, b.x0 - 3, b.hy + 12, 'B'); put(g, b.rx + 19, b.hy + 11, 'B'); }
     };
   }
   S.liquid = { loop: false, frames: [[160, liquid(0)], [160, liquid(1)], [160, liquid(2)], [160, liquid(3)], [160, liquid(4)], [160, liquid(5)], [300, pose({ eyes: 'happy' })]] };
@@ -992,31 +1182,85 @@
       const stone = k < 3;
       const b = body(g, { eyes: stone ? 'closed' : 'happy', armL: stone ? undefined : 'high', armR: stone ? undefined : 'high', squash: k === 3 ? 1 : 0 });
       if (stone) {
-        tint(g, 0, 0, 54, 36, 'X', 'S');
-        tint(g, 0, 0, 54, 36, 'x', 't');
-        put(g, b.x0 + 5, b.y0 + 6, 't'); put(g, b.x0 + 6, b.y0 + 7, 't'); put(g, b.x0 + 6, b.y0 + 8, 't');
-        put(g, b.x0 + 11, b.y0 + 13, 't'); put(g, b.x0 + 10, b.y0 + 14, 't');
-        if (k === 2) { put(g, b.x0 - 2, b.y0 + 17, 'Z'); put(g, b.x0 + 17, b.y0 + 17, 'Z'); }
+        tintAll(g, 'X', 'S');
+        tintAll(g, 'F', 'S');
+        tintAll(g, 'x', 't');
+        put(g, b.fx + 5, b.fy + 6, 't'); put(g, b.fx + 6, b.fy + 7, 't'); put(g, b.fx + 6, b.fy + 8, 't');
+        put(g, b.fx + 11, b.fy + 13, 't'); put(g, b.fx + 10, b.fy + 14, 't');
+        if (k === 2) { put(g, b.x0 - 2, BY + 17, 'Z'); put(g, b.r + 1, BY + 17, 'Z'); }
       } else {
-        stamp(g, b.x0 + 19, b.y0 - 6, P.one);
-        stamp(g, b.x0 + 23, b.y0 - 6, P.em);
+        stamp(g, b.rx + 19, b.y0 - 6, P.one);
+        stamp(g, b.rx + 23, b.y0 - 6, P.em);
       }
     };
   }
   S.solid = { loop: false, frames: [[260, solid(0)], [260, solid(1)], [160, solid(2)], [120, solid(3)], [900, solid(4)]] };
 
+  // Cambio de modelo: evoluciona de la forma anterior a la nueva. La silueta parpadea entre las
+  // dos cada vez más rápido, como en los juegos de bichos, y acaba en un destello. Silueta de oro
+  // con canto ocre, para que se lea en el tema claro y en el oscuro.
+  function inForm(name, fn) {
+    const keep = F;
+    useForm(name);
+    try { return fn(); } finally { F = keep; A = keep.a; }
+  }
+  function silhouette(g, name, o) {
+    const sh = blank(g.oy);
+    const b = inForm(name, () => body(sh, o));
+    const on = (x, y) => !!at(sh, x, y);
+    for (let y = -(g.oy || 0); y < H; y++) for (let x = 0; x < W; x++) {
+      if (!on(x, y)) continue;
+      const edge = !on(x - 1, y) || !on(x + 1, y) || !on(x, y - 1) || !on(x, y + 1);
+      put(g, x, y, edge ? 'y' : 'g');
+    }
+    return b;
+  }
+  function glints(g, k, near) {
+    for (let j = 0; j < 6; j++) {
+      const s = hash(j, k);
+      const x = 6 + (s % 42), y = (near ? 4 : -4) + ((s >> 5) % 24);
+      if (Math.abs(x - 24) < 9 && y > 6) continue;   // never over Capu itself
+      if (s % 3) put(g, x, y, 'Y');
+      else stamp(g, x - 2, y - 2, P.spark);
+    }
+  }
+  function evolve(k) {
+    return (g) => {
+      const from = FPREV.name, to = F.name;
+      if (k === 0) { g.pal = FPREV.pal; inForm(from, () => body(g, { eyes: 'wide' })); return; }
+      if (k === 1) { g.pal = FPREV.pal; inForm(from, () => body(g, { eyes: 'closed', squash: 1 })); glints(g, k, true); return; }
+      if (k < 12) { silhouette(g, k % 2 ? to : from, { eyes: 'none' }); glints(g, k, k > 6); return; }
+      if (k === 12) {
+        silhouette(g, to, {});
+        for (let j = 0; j < 12; j++) {
+          const ang = j * Math.PI / 6 + 0.26;
+          for (let r = 16; r < 30; r += 2) { const y = Math.round(16 + Math.sin(ang) * r * 0.7); if (y < 28) put(g, Math.round(24 + Math.cos(ang) * r), y, r % 4 ? 'Y' : 'g'); }
+        }
+        return;
+      }
+      body(g, { eyes: 'happy', armL: 'up', armR: 'up' });
+      glints(g, k, false);
+    };
+  }
+  S.evolve = { loop: false, fx: true, oy: 8, frames: [
+    [240, evolve(0)], [180, evolve(1)],
+    [150, evolve(2)], [130, evolve(3)], [115, evolve(4)], [100, evolve(5)], [90, evolve(6)],
+    [80, evolve(7)], [70, evolve(8)], [65, evolve(9)], [60, evolve(10)], [60, evolve(11)],
+    [140, evolve(12)], [520, evolve(13)],
+  ] };
+
   // Imagen adjunta: mira la foto
   S.photo = { loop: false, frames: [
-    [300, pose({ eyes: 'right', armR: 'out' }, (g, b) => stamp(g, b.x0 + 19, b.y0 + 7, P.polaroid))],
-    [900, pose({ eyes: 'upright', armR: 'out' }, (g, b) => stamp(g, b.x0 + 19, b.y0 + 7, P.polaroid))],
-    [110, pose({ eyes: 'closed', armR: 'out' }, (g, b) => stamp(g, b.x0 + 19, b.y0 + 7, P.polaroid))],
-    [500, pose({ eyes: 'right', armR: 'out' }, (g, b) => stamp(g, b.x0 + 19, b.y0 + 7, P.polaroid))],
+    [300, pose({ eyes: 'right', armR: 'out' }, (g, b) => stamp(g, b.rx + 19, b.hy + 7, P.polaroid))],
+    [900, pose({ eyes: 'upright', armR: 'out' }, (g, b) => stamp(g, b.rx + 19, b.hy + 7, P.polaroid))],
+    [110, pose({ eyes: 'closed', armR: 'out' }, (g, b) => stamp(g, b.rx + 19, b.hy + 7, P.polaroid))],
+    [500, pose({ eyes: 'right', armR: 'out' }, (g, b) => stamp(g, b.rx + 19, b.hy + 7, P.polaroid))],
   ] };
 
   // Detener: manos arriba
   S.halt = { loop: false, frames: [
     [120, pose({ eyes: 'wide', dy: -2, armL: 'high', armR: 'high' })],
-    [600, pose({ eyes: 'wide', armL: 'high', armR: 'high' }, (g, b) => stamp(g, b.x0 + 19, b.y0 - 2, P.bang))],
+    [600, pose({ eyes: 'wide', armL: 'high', armR: 'high' }, (g, b) => stamp(g, b.rx + 19, b.y0 - 2, P.bang))],
     [300, pose({ eyes: 'half' })],
   ] };
 
@@ -1024,7 +1268,7 @@
   function ask(k) {
     return (g) => {
       const b = body(g, { eyes: k === 3 ? 'closed' : 'downright', armR: 'out', legs: k % 2 ? 'stepR' : undefined });
-      stamp(g, b.x0 + 18, b.y0 + 3 + (k % 2 ? 0 : 1), P.sign);
+      stamp(g, b.rx + 18, b.hy + 3 + (k % 2 ? 0 : 1), P.sign);
     };
   }
   S.ask = { loop: true, frames: [[380, ask(0)], [380, ask(1)], [380, ask(0)], [120, ask(3)], [380, ask(1)]] };
@@ -1033,8 +1277,8 @@
   function npm(k) {
     return (g) => {
       const b = body(g, { eyes: k % 4 === 3 ? 'closed' : 'squint', squash: 2, armL: 'high', armR: 'high', dx: k % 2 ? 1 : 0 });
-      stamp(g, b.x0 - 1 + (k % 2), 2, P.box);
-      if (k % 3 === 0) stamp(g, b.x0 - 4, b.y0 + 6, P.drop);
+      stamp(g, b.fx - 1 + (k % 2), b.top - 6, P.box);
+      if (k % 3 === 0) stamp(g, b.x0 - 4, b.fy + 6, P.drop);
     };
   }
   S.npm = { loop: true, frames: [[300, npm(0)], [300, npm(1)], [300, npm(2)], [300, npm(3)], [300, npm(4)], [300, npm(5)]] };
@@ -1043,8 +1287,8 @@
   function git(k) {
     return (g) => {
       const b = body(g, { eyes: 'right', armR: 'out', dx: k % 4, legs: k % 2 ? 'stepL' : 'stepR' });
-      stamp(g, b.x0 + 20, b.y0 + 13, P.cube);
-      if (k % 2) stamp(g, b.x0 - 3, b.y0 + 17, ['Z.', '.Z']);
+      stamp(g, b.rx + 20, BY + 13, P.cube);
+      if (k % 2) stamp(g, b.x0 - 3, BY + 17, ['Z.', '.Z']);
     };
   }
   S.git = { loop: true, frames: [[200, git(0)], [200, git(1)], [200, git(2)], [200, git(3)], [500, git(3)]] };
@@ -1053,20 +1297,20 @@
   function tests(k) {
     return (g) => {
       const b = body(g, { eyes: k % 3 === 2 ? 'closed' : 'downright', armR: 'out' });
-      stamp(g, b.x0 + 18, b.y0 + 8, P.clipboard);
-      stamp(g, b.x0 + 24, b.y0 + 9 + (k % 3) * 2, P.pencil);
+      stamp(g, b.rx + 18, b.hy + 8, P.clipboard);
+      stamp(g, b.rx + 24, b.hy + 9 + (k % 3) * 2, P.pencil);
     };
   }
   S.tests = { loop: true, frames: [[300, tests(0)], [300, tests(1)], [300, tests(2)], [300, tests(3)]] };
   S.pass = { loop: false, frames: [
-    [160, pose({ eyes: 'happy', dy: -3, armL: 'high', armR: 'high' }, (g, b) => stamp(g, b.x0 + 4, 0, P.bigcheck))],
-    [160, pose({ eyes: 'happy', armL: 'up', armR: 'up' }, (g, b) => { stamp(g, b.x0 + 4, 0, P.bigcheck); stamp(g, b.x0 - 6, b.y0 + 2, P.confetti); })],
-    [600, pose({ eyes: 'happy' }, (g, b) => { stamp(g, b.x0 + 4, 0, P.bigcheck); stamp(g, b.x0 - 6, b.y0 + 5, P.confetti); stamp(g, b.x0 + 14, b.y0 + 3, P.confetti); })],
+    [160, pose({ eyes: 'happy', dy: -3, armL: 'high', armR: 'high' }, (g, b) => stamp(g, b.fx + 4, b.top - 8, P.bigcheck))],
+    [160, pose({ eyes: 'happy', armL: 'up', armR: 'up' }, (g, b) => { stamp(g, b.fx + 4, b.top - 8, P.bigcheck); stamp(g, b.x0 - 6, b.y0 + 2, P.confetti); })],
+    [600, pose({ eyes: 'happy' }, (g, b) => { stamp(g, b.fx + 4, b.top - 8, P.bigcheck); stamp(g, b.x0 - 6, b.y0 + 5, P.confetti); stamp(g, b.rx + 14, b.y0 + 3, P.confetti); })],
     [300, pose({ eyes: 'happy' })],
   ] };
   S.fail = { loop: false, frames: [
-    [200, pose({ eyes: 'wide' }, (g, b) => stamp(g, b.x0 + 19, b.y0 - 3, P.cross))],
-    [900, pose({ eyes: 'closed', armL: 'up' }, (g, b) => { stamp(g, b.x0 + 19, b.y0 - 3, P.cross); stamp(g, b.x0 + 1, b.y0 + 7, ['LLLLLL', 'lLLLLL', '.LLLL.']); })],
+    [200, pose({ eyes: 'wide' }, (g, b) => stamp(g, b.rx + 19, b.y0 - 3, P.cross))],
+    [900, pose({ eyes: 'closed', armL: 'up' }, (g, b) => { stamp(g, b.rx + 19, b.y0 - 3, P.cross); stamp(g, b.x0 + F.eyeL - 3, b.fy + 7, ['LLLLLL', 'lLLLLL', '.LLLL.']); })],
     [300, pose({ eyes: 'half' })],
   ] };
 
@@ -1074,25 +1318,25 @@
   function web(k) {
     return (g) => {
       const b = body(g, { eyes: 'open', armL: 'up', armR: 'up' });
-      stamp(g, b.x0 + 4 + [-1, 0, 1, 0][k % 4], b.y0 + 7, P.binoculars);
+      stamp(g, b.fx + 4 + [-1, 0, 1, 0][k % 4], b.fy + 7, P.binoculars);
     };
   }
   S.web = { loop: true, frames: [[420, web(0)], [360, web(1)], [420, web(2)], [360, web(3)]] };
 
   // borrar: tira la bola de papel a la papelera
   S.trash = { loop: false, frames: [
-    [200, pose({ eyes: 'right', armR: 'up' }, (g, b) => { stamp(g, b.x0 + 26, b.y0 + 13, P.bin); stamp(g, b.x0 + 18, b.y0 + 6, P.ball); })],
-    [160, pose({ eyes: 'right', armR: 'out' }, (g, b) => { stamp(g, b.x0 + 26, b.y0 + 13, P.bin); stamp(g, b.x0 + 23, b.y0 + 4, P.ball); })],
-    [160, pose({ eyes: 'right' }, (g, b) => { stamp(g, b.x0 + 26, b.y0 + 13, P.bin); stamp(g, b.x0 + 28, b.y0 + 9, P.ball); })],
-    [500, pose({ eyes: 'happy' }, (g, b) => stamp(g, b.x0 + 26, b.y0 + 13, P.bin))],
+    [200, pose({ eyes: 'right', armR: 'up' }, (g, b) => { stamp(g, b.rx + 26, BY + 13, P.bin); stamp(g, b.rx + 18, b.hy + 6, P.ball); })],
+    [160, pose({ eyes: 'right', armR: 'out' }, (g, b) => { stamp(g, b.rx + 26, BY + 13, P.bin); stamp(g, b.rx + 23, b.hy + 4, P.ball); })],
+    [160, pose({ eyes: 'right' }, (g, b) => { stamp(g, b.rx + 26, BY + 13, P.bin); stamp(g, b.rx + 28, b.hy + 9, P.ball); })],
+    [500, pose({ eyes: 'happy' }, (g, b) => stamp(g, b.rx + 26, BY + 13, P.bin))],
   ] };
 
   // gags de reposo: se riega a sí mismo, se estira, mira el móvil
   function water(k) {
     return (g) => {
       const b = body(g, { eyes: k >= 4 ? 'happy' : 'up', armR: 'high', top: k >= 5 ? 'twitch' : undefined });
-      stamp(g, b.x0 + 12, b.y0 - 6, P.wcan);
-      if (k >= 1 && k <= 4) { put(g, b.x0 + 11, b.y0 - 2 + (k % 2), 'B'); put(g, b.x0 + 9, b.y0 - 1 + ((k + 1) % 2), 'B'); put(g, b.x0 + 10, b.y0 + 1, 'B'); }
+      stamp(g, b.notch + 6, b.y0 - 6, P.wcan);
+      if (k >= 1 && k <= 4) { put(g, b.notch + 5, b.y0 - 2 + (k % 2), 'B'); put(g, b.notch + 3, b.y0 - 1 + ((k + 1) % 2), 'B'); put(g, b.notch + 4, b.y0 + 1, 'B'); }
     };
   }
   S.water = { loop: false, frames: [[400, water(0)], [200, water(1)], [200, water(2)], [200, water(3)], [200, water(4)], [600, water(5)], [300, pose({ eyes: 'happy' })]] };
@@ -1107,7 +1351,7 @@
     return (g) => {
       const b = body(g, { eyes: k === 4 ? 'closed' : 'downright', armR: 'out' });
       const scr = k % 2 ? ['DDDD', 'DWwD', 'DwwD', 'DwWD', 'DwwD', 'DDDD'] : P.phone;
-      stamp(g, b.x0 + 18, b.y0 + 10, scr);
+      stamp(g, b.rx + 18, b.hy + 10, scr);
     };
   }
   S.phone = { loop: true, frames: [[500, phone(0)], [300, phone(1)], [500, phone(2)], [300, phone(3)], [120, phone(4)]] };
@@ -1127,13 +1371,20 @@
     }
     return s.frames.length - 1;
   }
-  function frameAt(name, i) {
+  /** Frame i of a scene, drawn in a form (gas | liquid | solid; Liquid by default). `from` is the
+   *  form it comes from, which only the evolve scene draws. */
+  function frameAt(name, i, form, from) {
     const s = S[name] || S.idle;
-    const g = blank(s.oy);
-    s.frames[Math.max(0, Math.min(i, s.frames.length - 1))][1](g);
+    const keep = [F, FPREV];
+    useForm(form);
+    FPREV = FORMS[from] || F;
+    const g = blank(Math.max(s.oy || 0, F.oy || 0));
+    if (F.pal) g.pal = F.pal;
+    try { s.frames[Math.max(0, Math.min(i, s.frames.length - 1))][1](g); }
+    finally { F = keep[0]; A = F.a; FPREV = keep[1]; }
     return g;
   }
-  function frame(name, t) { return frameAt(name, frameIndex(name, t || 0)); }
+  function frame(name, t, form, from) { return frameAt(name, frameIndex(name, t || 0), form, from); }
 
   function bbox(grids) {
     let x1 = Infinity, y1 = Infinity, x2 = -1, y2 = -1;
@@ -1145,19 +1396,20 @@
   }
   // A crop that contains every frame of the given scenes (so the sprite never jumps). Scenes that
   // burst out of the stage (fx) only count when nothing else is asked for: they overflow the box.
-  function sceneBox(names, pad) {
+  // `forms`: the forms that box must hold (Liquid only by default).
+  function sceneBox(names, pad, forms) {
     const grids = [];
     const calm = names.filter((n) => !(S[n] || S.idle).fx);
     if (calm.length) names = calm;
-    for (const n of names) for (let i = 0; i < (S[n] || S.idle).frames.length; i++) grids.push(frameAt(n, i));
+    for (const f of forms || ['liquid']) for (const n of names) for (let i = 0; i < (S[n] || S.idle).frames.length; i++) grids.push(frameAt(n, i, f));
     const b = bbox(grids);
     pad = pad || 0;
     return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
   }
 
   // Same, but symmetric around the body so a centred Capu stays centred.
-  function centeredBox(names, pad) {
-    const b = sceneBox(names, pad);
+  function centeredBox(names, pad, forms) {
+    const b = sceneBox(names, pad, forms);
     const cx = BX + 8;
     const half = Math.max(cx - b.x, b.x + b.w - cx);
     return { x: cx - half, y: b.y, w: half * 2, h: b.h };
@@ -1171,7 +1423,7 @@
     const oy = g.oy || 0;
     const gw = g[0].length;
     const box = opts.crop || { x: 0, y: -oy, w: gw, h: g.length };
-    const pal = Object.assign({}, PAL, opts.palette || {});
+    const pal = Object.assign({}, PAL, g.pal || {}, opts.palette || {});
     const x0 = opts.bleed ? 0 : Math.max(0, box.x), x1 = opts.bleed ? gw : Math.min(gw, box.x + box.w);
     let rects = '', out = false;
     for (let gy = 0; gy < g.length; gy++) {
@@ -1202,7 +1454,7 @@
   function toANSI(g, opts) {
     opts = opts || {};
     const box = opts.crop || bbox([g]);
-    const pal = Object.assign({}, PAL, opts.palette || {});
+    const pal = Object.assign({}, PAL, g.pal || {}, opts.palette || {});
     const color = opts.color !== false;
     const lines = [];
     const start = box.y - (box.h % 2);
@@ -1231,6 +1483,8 @@
   function Player(el, opts) {
     this.el = el;
     this.opts = Object.assign({ px: 3, crop: null, fluid: false, motion: 'system' }, opts || {});
+    this.form = FORMS[this.opts.form] ? this.opts.form : 'liquid';
+    this.from = this.form;
     this.scene = null;
     this.t0 = 0;
     this.last = -1;
@@ -1275,6 +1529,16 @@
     if (!this._stopped && this.scene) this._tick();
     return this;
   };
+  /** Draw Capu in another form (gas | liquid | solid) from the next frame on, without restarting the scene. */
+  Player.prototype.setForm = function (form) {
+    form = FORMS[form] ? form : 'liquid';
+    if (form === this.form) return this;
+    this.from = this.form;
+    this.form = form;
+    this.last = -1;
+    if (!this._stopped && this.scene) this._tick();
+    return this;
+  };
   Player.prototype.play = function (scene, onEnd) {
     if (!S[scene]) scene = 'idle';
     if (scene === this.scene && this.timer && !onEnd) return this;
@@ -1288,7 +1552,7 @@
     return this;
   };
   Player.prototype._render = function (i) {
-    this.el.innerHTML = toSVG(frameAt(this.scene, i), { px: this.opts.px, crop: this.opts.crop || undefined, fluid: this.opts.fluid, bleed: this.opts.bleed !== false && !!S[this.scene].fx });
+    this.el.innerHTML = toSVG(frameAt(this.scene, i, this.form, this.from), { px: this.opts.px, crop: this.opts.crop || undefined, fluid: this.opts.fluid, bleed: this.opts.bleed !== false && !!S[this.scene].fx });
   };
   Player.prototype._tick = function () {
     clearTimeout(this.timer);
@@ -1400,6 +1664,13 @@
       this._showState();
     });
   };
+  /** The model changed: evolve into its form, then play `gag` (the model's own reaction). */
+  Director.prototype.morph = function (form, gag) {
+    form = FORMS[form] ? form : 'liquid';
+    if (form === this.p.form) { if (gag) this.react(gag); return; }
+    this.p.setForm(form);
+    this.react('evolve', gag && S[gag] ? () => this.react(gag) : null);
+  };
   Director.prototype.pause = function () { this.paused = true; clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); };
   Director.prototype.resume = function (keepScene) {
     this.paused = false;
@@ -1442,7 +1713,7 @@
   Director.prototype.stop = function () { clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); clearTimeout(this.holdTimer); this.p.stop(); };
 
   return {
-    PAL, W, H, SCENES: S, P, TOPS, base, blank, at, put, stamp, fill, body, frame, frameAt, frameIndex,
+    PAL, W, H, SCENES: S, P, TOPS, FORMS, formFor, base, blank, at, put, stamp, fill, body, frame, frameAt, frameIndex,
     sceneDuration, bbox, sceneBox, centeredBox, toSVG, toANSI, Player, Director,
   };
 }));

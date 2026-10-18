@@ -777,7 +777,7 @@ function renderHero() {
   const stage = capuEnabled() ? h('div', { class: 'capu capu-hero', title: 'Capu' }) : null;
   if (S.heroDirector) { S.heroDirector.stop(); S.heroDirector = null; }
   if (stage) {
-    const heroPlayer = new Capu.Player(stage, { px: CAPU_PX * 2, crop: Capu.centeredBox(Object.keys(Capu.SCENES), 1), scene: 'hello', motion: capuMotion() });
+    const heroPlayer = new Capu.Player(stage, { px: CAPU_PX * 2, crop: CAPU_HERO(), scene: 'hello', motion: capuMotion(), form: capuForm() });
     S.heroDirector = new Capu.Director(heroPlayer, { sleepAfter: 90000 });
     if (!S.heroHello) S.heroDirector.set('hello');
     S.heroHello = true;
@@ -1237,7 +1237,7 @@ function renderError(it) {
 function renderHandoff(it) {
   const box = h('div', { class: 'handoff' });
   const mini = h('div', { class: 'capu capu-mini' });
-  mini.innerHTML = Capu.toSVG(Capu.frameAt('wilt', 0), { px: 1, crop: Capu.sceneBox(['wilt'], 1) });
+  mini.innerHTML = Capu.toSVG(Capu.frameAt('wilt', 0, capuForm()), { px: 1, crop: Capu.sceneBox(['wilt'], 1, [capuForm()]) });
   const txt = h('div', { class: 'hb' },
     h('div', { class: 'h', text: T('Traspaso guardado') }),
     h('p', { text: it.path
@@ -1304,7 +1304,13 @@ function stickToBottom() { if (stick) requestAnimationFrame(() => scrollToBottom
 // the Director turns what the agent is doing into scenes and slips in a gag now and then.
 
 // Capu stands on the top edge of the input bar: the stage ends at its feet (row 28 of the scene).
-const CAPU_STAND = (() => { const b = Capu.centeredBox(Object.keys(Capu.SCENES), 0); return { x: b.x, y: b.y, w: b.w, h: 28 - b.y }; })();
+// The stage holds every form (Gas, Liquid, Solid), so changing model never resizes or moves it.
+const CAPU_FORMS = Object.keys(Capu.FORMS);
+const CAPU_STAND = (() => { const b = Capu.centeredBox(Object.keys(Capu.SCENES), 0, CAPU_FORMS); return { x: b.x, y: b.y, w: b.w, h: 28 - b.y }; })();
+let capuHeroBox = null;
+const CAPU_HERO = () => capuHeroBox || (capuHeroBox = Capu.centeredBox(Object.keys(Capu.SCENES), 1, CAPU_FORMS));
+/** One Capu per model family: Gas is small and violet, Liquid the usual one, Solid a bigger cut garnet. */
+const capuForm = () => Capu.formFor(currentChoice().model);
 const capuEnabled = () => localStorage.getItem('deiza:capu') !== '0';
 // Capu has its own motion preference: full effects by default, with system/reduced options in Code settings.
 const capuMotion = () => { const m = localStorage.getItem('deiza:capu:motion'); return ['full', 'system', 'reduced'].includes(m) ? m : 'full'; };
@@ -1325,7 +1331,7 @@ const CAPU_PX = (() => { const r = window.devicePixelRatio || 1; return Math.max
 function capuInit() {
   if (capu.el) return;
   capu.el = h('div', { class: 'capu capu-stand', title: 'Capu', role: 'button', 'aria-label': 'Capu' });
-  capu.player = new Capu.Player(capu.el, { px: CAPU_PX, crop: CAPU_STAND, motion: capuMotion() });
+  capu.player = new Capu.Player(capu.el, { px: CAPU_PX, crop: CAPU_STAND, motion: capuMotion(), form: capuForm() });
   capu.director = new Capu.Director(capu.player, { sleepAfter: 120000 });
   // a click on Capu: an instant trick
   capu.el.addEventListener('click', () => { capuStopWalk(); capu.director.poke(); });
@@ -1335,6 +1341,7 @@ function capuInit() {
 function capuMount(box) {
   if (!capuEnabled() || !S.cur || !box) { if (capu.el) capu.el.remove(); return; }
   capuInit();
+  capu.player.setForm(capuForm());
   box.append(capu.el);
   // the bar changes width with the window (maximise, snap) and the side panels: keep Capu on it
   if (capu.ro) capu.ro.disconnect();
@@ -1475,7 +1482,15 @@ function capuEffort(prev, next) {
   if (next === 'max') { if (prev !== 'max') capuReact('saiyan'); return; }
   if (CAPU_EFFORT[next]) capuReact(CAPU_EFFORT[next]);
 }
-const CAPU_MODEL = { 'deiza-gas': 'gas', 'deiza-gas-5.5': 'gas', 'deiza-solid-5': 'solid', 'deiza-omniscient': 'liquid', 'deiza-gas-4.5': 'gas' };
+/** The model changed: the Capu on screen evolves into the new form; the other one just takes it. */
+function capuMorph(model) {
+  if (!capuEnabled()) return;
+  const form = Capu.formFor(model);
+  if (S.cur) { capuInit(); capuReturnHome(); }
+  const d = capuDirector();
+  for (const other of [capu.director, S.heroDirector]) if (other && other !== d) other.p.setForm(form);
+  if (d) d.morph(form, form);
+}
 function capuCommandKind(cmd) {
   const c = String(cmd || '');
   if (/\b(npm|pnpm|yarn|bun)\s+(i|install|add|ci)\b|\bpip3?\s+install\b|\bcargo\s+add\b/.test(c)) return 'npm';
@@ -1928,7 +1943,7 @@ async function chooseModel(patch) {
   if (patch.model && isGas55Model(patch.model) && !isGas55Model(before.model) && !patch.effort) patch.effort = gas55Effort();
   const c = { ...before, ...patch };
   if (isGas55Model(c.model) && patch.effort) { try { localStorage.setItem('deiza:code:gas55-effort', patch.effort); } catch {} }
-  if (patch.model && modelInfo(patch.model).id !== modelInfo(before.model).id) capuReact(CAPU_MODEL[modelInfo(patch.model).id] || 'mid');
+  if (patch.model && modelInfo(patch.model).id !== modelInfo(before.model).id) capuMorph(modelInfo(patch.model).id);
   else if (patch.effort && patch.effort !== before.effort) capuEffort(before.effort, patch.effort);
   S.model = c.model;
   S.effort = c.effort;

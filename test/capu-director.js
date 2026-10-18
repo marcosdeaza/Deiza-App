@@ -89,4 +89,44 @@ for (const legacy of [false, true]) {
   p.setMotion('system'); assert.equal(p.reduced, true); assert.equal(h.listeners.size, 1);
   p.stop(); assert.equal(h.timers.size, 0); assert.equal(h.listeners.size, 0);
 }
-console.log('Capu regressions passed: reactions, deferred states, return home, motion changes and cleanup.');
+// Forms: one Capu per model family, sharing the centre and the ground line.
+{
+  const { Capu: C, timers: tm, advance: adv } = harness();
+  assert.equal(C.formFor('deiza-gas-5.5'), 'gas'); assert.equal(C.formFor('deiza-gas-4.5'), 'gas');
+  assert.equal(C.formFor('deiza-solid-5'), 'solid'); assert.equal(C.formFor('deiza-omniscient'), 'liquid');
+  assert.equal(C.formFor('deiza-liquid-5.1'), 'liquid'); assert.equal(C.formFor(undefined), 'liquid');
+  // the body itself (Gas's wisp of vapour does not count)
+  const box = (form) => {
+    const g = C.frameAt('idle', 0, form);
+    for (const row of g) for (let x = 0; x < row.length; x++) if (!['X', 'x', 'F', 'Y', 'y', 'g'].includes(row[x])) row[x] = null;
+    return C.bbox([g]);
+  };
+  const [gas, liquid, solid] = ['gas', 'liquid', 'solid'].map(box);
+  assert.ok(gas.w < liquid.w && liquid.w < solid.w, 'Gas < Liquid < Solid in width');
+  assert.ok(gas.h < liquid.h && liquid.h < solid.h, 'Gas < Liquid < Solid in height');
+  for (const b of [gas, liquid, solid]) assert.equal(b.y + b.h, 28, 'every form stands on the same ground');
+  assert.deepEqual(C.frameAt('idle', 0), C.frameAt('idle', 0, 'liquid'), 'Liquid is the default form');
+  assert.ok(C.frameAt('idle', 0, 'gas').pal, 'Gas carries its own palette');
+  // every scene draws in every form without throwing
+  for (const form of Object.keys(C.FORMS)) for (const n of Object.keys(C.SCENES)) {
+    for (let i = 0; i < C.SCENES[n].frames.length; i++) C.frameAt(n, i, form, 'liquid');
+  }
+  for (const motion of ['full', 'reduced']) {
+    const p = new C.Player({ innerHTML: '' }, { motion, form: 'solid' });
+    const d = new C.Director(p);
+    assert.equal(p.form, 'solid');
+    d.morph('gas', 'gas');
+    assert.equal(p.form, 'gas'); assert.equal(p.from, 'solid'); assert.equal(p.scene, 'evolve');
+    adv(C.sceneDuration('evolve'));
+    assert.equal(p.scene, 'gas'); assert.equal(d.reacting, true);
+    adv(C.sceneDuration('gas'));
+    assert.equal(p.scene, 'idle'); assert.equal(d.reacting, false);
+    d.morph('gas', 'gas');
+    assert.equal(p.scene, 'gas', 'same form: only the model reaction');
+    adv(C.sceneDuration('gas'));
+    p.setForm('nope'); assert.equal(p.form, 'liquid');
+    d.stop();
+  }
+  assert.equal(tm.size, 0);
+}
+console.log('Capu regressions passed: reactions, deferred states, return home, motion changes, forms and cleanup.');

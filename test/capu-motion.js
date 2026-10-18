@@ -165,6 +165,16 @@ async function run(dpr) {
       ['liquid', { model: 'deiza-omniscient' }], ['solid', { model: 'deiza-solid-5' }], ['saiyan', { effort: 'max' }],
     ]) {
       await ui.evaluate(patch => chooseModel(patch), action);
+      if (scene !== 'saiyan') {
+        // a model change first evolves into that model's Capu, then plays the model's own reaction
+        assert.equal(await ui.evaluate(() => capu.player.form), scene, `${scene} form was not applied`);
+        if (await ui.evaluate(() => capu.player.scene) === 'evolve') {
+          const ev = await sample(ui, 600);
+          continuous(ev, `full ${scene} evolve`);
+          assert.ok(ev.distinct > 1, `full ${scene} evolve is static`);
+          await ui.waitForFunction(s => capu.player.scene === s, scene, { timeout: 3000 });
+        }
+      }
       assert.equal(await ui.evaluate(() => capu.player.scene), scene, `full ${scene} reaction did not start`);
       const result = await sample(ui, scene === 'saiyan' ? 1400 : 700);
       continuous(result, `full ${scene}`);
@@ -199,6 +209,14 @@ async function run(dpr) {
         await ui.waitForFunction(() => !capu.director.reacting, null, { timeout: 5000 });
         await ui.evaluate(() => chooseModel({ effort: 'max' }));
       } else await ui.evaluate(patch => chooseModel(patch), action);
+      if (scene !== 'saiyan' && await ui.evaluate(() => capu.player.scene) === 'evolve') {
+        const evolveTotal = await ui.evaluate(() => Capu.sceneDuration('evolve'));
+        const ev = await sample(ui, evolveTotal - 180);
+        continuous(ev, `system ${scene} evolve`);
+        assert.deepEqual(ev.scenes, ['evolve'], `system ${scene} evolve ended early`);
+        assert.equal(ev.distinct, 1, `system ${scene} evolve should hold a still pose`);
+        await ui.waitForFunction(s => capu.player.scene === s, scene, { timeout: 1500 });
+      }
       const total = await ui.evaluate(name => Capu.sceneDuration(name), scene);
       assert.equal(await ui.evaluate(() => capu.player.scene), scene, `system ${scene} vanished synchronously`);
       const result = await sample(ui, total - 180);
