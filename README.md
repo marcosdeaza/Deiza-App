@@ -8,11 +8,13 @@ El workspace de Deiza y Deiza Code en una sola app para macOS, Windows y Linux.
 
 ![Deiza Code trabajando en un proyecto, con la página generada en el panel lateral](docs/screenshots/code-session.png)
 
-## Versión actual: 1.2.7
+## Versión actual: 1.2.8
+
+GAS 5.5 llega antes: desde el 18 de octubre a las 17:00. Los modelos anteriores que se siguen pudiendo usar (Gas 4.5, Liquid 5.1) llevan su Capu en modo abuelo: color apagado, cejas blancas, monóculo y bastón.
 
 Capu cambia con el modelo de Code: con Gas es pequeño y violeta, con Liquid es el de siempre y con Solid es un granate tallado, más grande y con vetas de oro. Al elegir otro modelo evoluciona delante de ti y después hace la reacción de ese modelo.
 
-Incluye el motor de Deiza Code **2.5.5**. GAS 5.5 se activa automáticamente el **19 de octubre de 2026 a las 12:00, hora peninsular española**, con 200K de contexto, imágenes, herramientas y esfuerzo ajustable. Antes de esa hora, Gas sigue usando la generación 4.5; después, Gas 4.5 queda disponible como generación anterior.
+Incluye el motor de Deiza Code **2.5.5**. GAS 5.5 está disponible desde el **18 de octubre de 2026 a las 17:00, hora peninsular española** (adelantado desde el 19), con 200K de contexto, imágenes, herramientas y esfuerzo ajustable. Gas 4.5 queda disponible como generación anterior.
 
 El esfuerzo de GAS empieza en Bajo y se guarda por separado del de Liquid y Solid. Los niveles superiores pueden tardar más y consumir más tokens. Se mantiene la cuota de Gas 4.5.
 
@@ -35,7 +37,7 @@ Capu es la mascota de Deiza Code: un capullo de rosa hecho bloque, con el pétal
 
 <p align="center"><img src="docs/capu/capu-forms.svg" width="300" alt="Capu cambia de forma con el modelo: Liquid, Solid y Gas"></p>
 
-Cada modelo tiene su Capu. Gas es un capullito violeta, más pequeño y con una voluta de vapor; Liquid es el Capu de siempre; Solid es un granate tallado, más grande, con tres pétalos en corona, canto iluminado y vetas de oro. Las tres formas comparten centro y suelo, así que todas las escenas valen para todas, y al cambiar de modelo la silueta dorada parpadea entre la forma vieja y la nueva hasta acabar en un destello.
+Cada modelo tiene su Capu. Gas es un capullito violeta, más pequeño y con una voluta de vapor; Liquid es el Capu de siempre; Solid es un granate tallado, más grande, con tres pétalos en corona, canto iluminado y vetas de oro. Las tres formas comparten centro y suelo, así que todas las escenas valen para todas, y al cambiar de modelo la silueta dorada parpadea entre la forma vieja y la nueva hasta acabar en un destello. Los modelos retirados que se siguen pudiendo usar (Gas 4.5, Liquid 5.1 y los que vengan) llevan la misma forma en modo abuelo: color apagado, cejas blancas caídas, monóculo de oro y bastón.
 
 ![Capu tecleando mientras Deiza Code escribe un archivo](docs/screenshots/code-capu.png)
 

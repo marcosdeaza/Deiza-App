@@ -28,7 +28,7 @@ const DEFAULT_MODEL = 'deiza-solid';   // 1M of context: the default for coding 
 
 const LIQUID55_AT = '2026-10-12T00:00:00+02:00';
 const liquid55Live = (now = Date.now()) => now >= Date.parse(LIQUID55_AT);
-const GAS55_AT = '2026-10-19T12:00:00+02:00';
+const GAS55_AT = '2026-10-18T17:00:00+02:00';
 const gas55Live = (now = Date.now()) => now >= Date.parse(GAS55_AT);
 const EFFORTS = ['low', 'medium', 'high', 'ultra', 'max'];
 const isGas55Model = (model, now = Date.now()) => gas55Live(now) && ['deiza-gas', 'deiza-gas-5.5'].includes(model);
@@ -118,7 +118,7 @@ for (const version of ['5.1', '5.5']) {
   MODEL_INFO['deiza-liquid-' + version] = { ...MODEL_INFO['deiza-liquid'], id: 'deiza-liquid-' + version, shortName: 'liquid-' + version, name: 'Deiza Liquid ' + version, badge: 'Liquid ' + version + ' · ' + (version === '5.5' ? '1M' : '256K') + ' tokens', tag: 'LIQUID ' + version, desc: version === '5.5' ? 'Liquid 5.5, disponible desde el 12 de octubre: 1M de contexto, razonamiento adaptativo y visión.' : 'Generación anterior. Contexto de 256K tokens y visión.' };
 }
 
-MODEL_INFO['deiza-gas-5.5'] = { id: 'deiza-gas-5.5', name: 'Deiza GAS 5.5', tag: 'GAS 5.5', desc: 'Disponible el 19 de octubre a las 12:00, hora peninsular.', shortName: 'gas-5.5' };
+MODEL_INFO['deiza-gas-5.5'] = { id: 'deiza-gas-5.5', name: 'Deiza GAS 5.5', tag: 'GAS 5.5', desc: 'Disponible desde el 18 de octubre a las 17:00, hora peninsular.', shortName: 'gas-5.5' };
 MODEL_INFO['deiza-gas-4.5'] = { id: 'deiza-gas-4.5', name: 'Deiza Gas 4.5', tag: 'GAS 4.5', get desc() { return gas55Live() ? 'Obsoleto. Generación anterior; usa GAS 5.5 para tareas nuevas.' : 'Gas 4.5, versión fija.'; }, shortName: 'gas-4.5' };
 
 // Real context windows (tokens) of the native engines. Compaction starts at 70 % of the window of
@@ -170,9 +170,9 @@ function normalizeModel(modelStr, isCustom = false) {
   const s = String(modelStr || '').trim();
   if (isCustom) return s || 'default';
   const lower = s.toLowerCase();
-  if (MODEL_ALIASES[lower] === 'deiza-gas-5.5' && !gas55Live()) throw new Error('GAS 5.5 estará disponible el 19 de octubre a las 12:00, hora peninsular.');
+  if (MODEL_ALIASES[lower] === 'deiza-gas-5.5' && !gas55Live()) throw new Error('GAS 5.5 estará disponible el 18 de octubre a las 17:00, hora peninsular.');
   if (MODEL_ALIASES[lower]) return MODEL_ALIASES[lower];
-  if ((lower === 'deiza-gas-5.5' || MODEL_ALIASES[lower] === 'deiza-gas-5.5') && !gas55Live()) throw new Error('GAS 5.5 estará disponible el 19 de octubre a las 12:00, hora peninsular.');
+  if ((lower === 'deiza-gas-5.5' || MODEL_ALIASES[lower] === 'deiza-gas-5.5') && !gas55Live()) throw new Error('GAS 5.5 estará disponible el 18 de octubre a las 17:00, hora peninsular.');
   if (NATIVE_MODELS.includes(lower)) return lower;
   return DEFAULT_MODEL;
 }

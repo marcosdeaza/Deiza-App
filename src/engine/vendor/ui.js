@@ -79,7 +79,7 @@ function renderModelSelector(currentModel = 'deiza-liquid') {
   ];
   if (MODEL_INFO['deiza-liquid'].tag === 'LIQUID 5.5' || currentModel === 'deiza-liquid-5.1') list.push({num: '5.1', key: 'deiza-liquid-5.1', short: 'liquid-5.1', info: MODEL_INFO['deiza-liquid-5.1'], color: C.cyan});
   if (MODEL_INFO['deiza-gas'].tag === 'GAS 5.5') list.push({num:'4.5',key:'deiza-gas-4.5',short:'gas-4.5',info:MODEL_INFO['deiza-gas-4.5'],color:C.gray});
-  else out += `  ${C.gray}GAS 5.5 · Próximamente: 19 de octubre, 12:00 (hora peninsular)${C.reset}\n`;
+  else out += `  ${C.gray}GAS 5.5 · Próximamente: 18 de octubre, 17:00 (hora peninsular)${C.reset}\n`;
   for (const item of list) {
     const isAct = item.key === currentModel || item.short === currentModel;
     const mark = isAct ? `${C.green}●${C.reset}` : `${C.darkGray}○${C.reset}`;

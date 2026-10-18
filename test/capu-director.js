@@ -128,5 +128,26 @@ for (const legacy of [false, true]) {
     d.stop();
   }
   assert.equal(tm.size, 0);
+  // Old mode: retired models keep their form, faded, with brows, monocle and cane
+  assert.equal(C.formFor('deiza-gas-4.5', { legacy: true }), 'gas:old');
+  assert.equal(C.formName('liquid:old'), 'liquid:old'); assert.equal(C.formName('nope:old'), 'liquid:old'); assert.equal(C.formName('solid:young'), 'solid');
+  for (const base of ['gas', 'liquid', 'solid']) {
+    const young = C.frameAt('idle', 0, base), old = C.frameAt('idle', 0, `${base}:old`);
+    const count = (g, c) => g.flat().filter(v => v === c).length;
+    assert.ok(count(old, 'W') >= 4 && count(young, 'W') === 0, `${base}: white brows only when old`);
+    assert.ok(count(old, 'C') >= 8 && count(young, 'C') === 0, `${base}: a cane only when old`);
+    assert.ok(count(old, 'Y') + count(old, 'y') > count(young, 'Y') + count(young, 'y'), `${base}: monocle`);
+    assert.notEqual(old.pal.X, (young.pal || C.PAL).X, `${base}: faded body`);
+  }
+  {
+    const p = new C.Player({ innerHTML: '' }, { motion: 'reduced', form: 'gas:old' });
+    const d = new C.Director(p);
+    assert.equal(p.form, 'gas:old');
+    d.morph('gas', 'gas');
+    assert.equal(p.scene, 'evolve'); assert.equal(p.from, 'gas:old'); assert.equal(p.form, 'gas');
+    adv(C.sceneDuration('evolve') + C.sceneDuration('gas'));
+    assert.equal(p.scene, 'idle');
+    d.stop();
+  }
 }
-console.log('Capu regressions passed: reactions, deferred states, return home, motion changes, forms and cleanup.');
+console.log('Capu regressions passed: reactions, deferred states, return home, motion changes, forms, old mode and cleanup.');

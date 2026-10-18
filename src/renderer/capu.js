@@ -330,14 +330,53 @@
   }
   // The form being drawn (frames are drawn synchronously, one at a time) and the one before it,
   // which only the evolve scene uses.
+  // Modo abuelo: los modelos retirados que se pueden seguir usando (Gas 4.5, Liquid 5.1…) llevan
+  // su misma forma con el sufijo ':old': color apagado, cejas blancas caídas, monóculo de oro en
+  // el ojo derecho y bastón a la izquierda.
+  const OLD_PAL = {
+    liquid: { X: '#B0646C', x: '#8A4C54' },
+    gas: { X: '#A08ABA', x: '#7D6898' },
+    solid: { X: '#9A4852', x: '#72343E', F: '#B26570' },
+  };
+  const CANE = ['.cc', 'c.C', 'c.C', '..C', '..C', '..C', '..C', '..C', '..C', '..C', '..C'];
   let F = FORMS.liquid;
   let A = F.a;
-  let FPREV = F;
-  function useForm(name) { F = FORMS[name] || FORMS.liquid; A = F.a; return F; }
-  /** Model id → form: Gas, Solid, and everything else (Liquid / Omniscient) is the standard Capu. */
-  function formFor(model) {
+  let OLD = false;
+  let FN = 'liquid';      // full name of the form being drawn ('gas', 'solid:old'…)
+  let FPREV = 'liquid';   // the form it comes from (evolve)
+  /** 'gas' | 'liquid' | 'solid', optionally with ':old'; anything else is 'liquid'. */
+  function formName(name) {
+    const [base, age] = String(name || '').split(':');
+    return (FORMS[base] ? base : 'liquid') + (age === 'old' ? ':old' : '');
+  }
+  function useForm(name) {
+    FN = formName(name);
+    const [base, age] = FN.split(':');
+    F = FORMS[base]; A = F.a; OLD = age === 'old';
+    return F;
+  }
+  function palFor(name) {
+    const [base, age] = formName(name).split(':');
+    return age === 'old' ? Object.assign({}, FORMS[base].pal, OLD_PAL[base]) : FORMS[base].pal;
+  }
+  /** Model id → form: Gas, Solid, and everything else (Liquid / Omniscient) is the standard Capu.
+   *  opts.legacy (a retired model that can still be used) → the same form in ':old' mode. */
+  function formFor(model, opts) {
     const m = String(model || '').toLowerCase();
-    return /gas/.test(m) ? 'gas' : /solid/.test(m) ? 'solid' : 'liquid';
+    const base = /gas/.test(m) ? 'gas' : /solid/.test(m) ? 'solid' : 'liquid';
+    return opts && opts.legacy ? `${base}:old` : base;
+  }
+  // white droopy eyebrows, a gold monocle with its chain on the right eye (after the eye holes)
+  function oldFace(g, x0, y0) {
+    const L = F.eyeL, R = L + 6, EY = y0 + F.eyeY;
+    const onBody = (x, y) => { const c = at(g, x, y); return c === 'X' || c === 'x' || c === 'F'; };
+    const brow = (x, y) => { if (onBody(x, y)) put(g, x, y, 'W'); };
+    brow(x0 + L - 1, EY - 1); brow(x0 + L, EY - 2); brow(x0 + L + 1, EY - 2);
+    brow(x0 + R, EY - 3); brow(x0 + R + 1, EY - 3); brow(x0 + R + 2, EY - 2);
+    for (const [i, j, c] of [[0, -1, 'Y'], [1, -1, 'Y'], [-1, 0, 'Y'], [-1, 1, 'Y'], [-1, 2, 'y'], [-1, 3, 'y'], [2, 0, 'h'],
+      [2, 1, 'Y'], [2, 2, 'Y'], [2, 3, 'y'], [0, 4, 'y'], [1, 4, 'y'], [2, 5, 'y'], [3, 6, 'y'], [3, 7, 'y']]) {
+      put(g, x0 + R + i, EY + j, c);
+    }
   }
 
   // Eye holes (fine coords relative to the body's top-left corner). Every form keeps them 6 apart.
@@ -414,6 +453,10 @@
     if (o.eyes === 'happy') happyEyes(g, x0, y0);
     else if (o.eyes !== 'none') for (const [ex, eyy, w, h] of eyeRects(o.eyes)) fill(g, x0 + ex, y0 + eyy, w, h, '_');
     const hy = y0 - A.yoff;
+    if (OLD) {
+      if (o.eyes !== 'none') oldFace(g, x0, y0);
+      stamp(g, x0 - 4, 28 - CANE.length, CANE);
+    }
     if (o.armL) {
       const s = LEAF[o.armL];
       stamp(g, x0 - s[0].length, hy + ARM_Y[o.armL], s, true);
@@ -1200,9 +1243,9 @@
   // dos cada vez más rápido, como en los juegos de bichos, y acaba en un destello. Silueta de oro
   // con canto ocre, para que se lea en el tema claro y en el oscuro.
   function inForm(name, fn) {
-    const keep = F;
+    const keep = FN;
     useForm(name);
-    try { return fn(); } finally { F = keep; A = keep.a; }
+    try { return fn(); } finally { useForm(keep); }
   }
   function silhouette(g, name, o) {
     const sh = blank(g.oy);
@@ -1226,9 +1269,9 @@
   }
   function evolve(k) {
     return (g) => {
-      const from = FPREV.name, to = F.name;
-      if (k === 0) { g.pal = FPREV.pal; inForm(from, () => body(g, { eyes: 'wide' })); return; }
-      if (k === 1) { g.pal = FPREV.pal; inForm(from, () => body(g, { eyes: 'closed', squash: 1 })); glints(g, k, true); return; }
+      const from = FPREV, to = FN;
+      if (k === 0) { g.pal = palFor(from); inForm(from, () => body(g, { eyes: 'wide' })); return; }
+      if (k === 1) { g.pal = palFor(from); inForm(from, () => body(g, { eyes: 'closed', squash: 1 })); glints(g, k, true); return; }
       if (k < 12) { silhouette(g, k % 2 ? to : from, { eyes: 'none' }); glints(g, k, k > 6); return; }
       if (k === 12) {
         silhouette(g, to, {});
@@ -1371,17 +1414,18 @@
     }
     return s.frames.length - 1;
   }
-  /** Frame i of a scene, drawn in a form (gas | liquid | solid; Liquid by default). `from` is the
-   *  form it comes from, which only the evolve scene draws. */
+  /** Frame i of a scene, drawn in a form (gas | liquid | solid, ':old' for a retired model; Liquid
+   *  by default). `from` is the form it comes from, which only the evolve scene draws. */
   function frameAt(name, i, form, from) {
     const s = S[name] || S.idle;
-    const keep = [F, FPREV];
+    const keep = [FN, FPREV];
     useForm(form);
-    FPREV = FORMS[from] || F;
+    FPREV = from ? formName(from) : FN;
     const g = blank(Math.max(s.oy || 0, F.oy || 0));
-    if (F.pal) g.pal = F.pal;
+    const pal = palFor(FN);
+    if (pal) g.pal = pal;
     try { s.frames[Math.max(0, Math.min(i, s.frames.length - 1))][1](g); }
-    finally { F = keep[0]; A = F.a; FPREV = keep[1]; }
+    finally { useForm(keep[0]); FPREV = keep[1]; }
     return g;
   }
   function frame(name, t, form, from) { return frameAt(name, frameIndex(name, t || 0), form, from); }
@@ -1483,7 +1527,7 @@
   function Player(el, opts) {
     this.el = el;
     this.opts = Object.assign({ px: 3, crop: null, fluid: false, motion: 'system' }, opts || {});
-    this.form = FORMS[this.opts.form] ? this.opts.form : 'liquid';
+    this.form = formName(this.opts.form);
     this.from = this.form;
     this.scene = null;
     this.t0 = 0;
@@ -1531,7 +1575,7 @@
   };
   /** Draw Capu in another form (gas | liquid | solid) from the next frame on, without restarting the scene. */
   Player.prototype.setForm = function (form) {
-    form = FORMS[form] ? form : 'liquid';
+    form = formName(form);
     if (form === this.form) return this;
     this.from = this.form;
     this.form = form;
@@ -1666,7 +1710,7 @@
   };
   /** The model changed: evolve into its form, then play `gag` (the model's own reaction). */
   Director.prototype.morph = function (form, gag) {
-    form = FORMS[form] ? form : 'liquid';
+    form = formName(form);
     if (form === this.p.form) { if (gag) this.react(gag); return; }
     this.p.setForm(form);
     this.react('evolve', gag && S[gag] ? () => this.react(gag) : null);
@@ -1713,7 +1757,7 @@
   Director.prototype.stop = function () { clearTimeout(this.gagTimer); clearTimeout(this.idleTimer); clearTimeout(this.holdTimer); this.p.stop(); };
 
   return {
-    PAL, W, H, SCENES: S, P, TOPS, FORMS, formFor, base, blank, at, put, stamp, fill, body, frame, frameAt, frameIndex,
+    PAL, W, H, SCENES: S, P, TOPS, FORMS, formFor, formName, base, blank, at, put, stamp, fill, body, frame, frameAt, frameIndex,
     sceneDuration, bbox, sceneBox, centeredBox, toSVG, toANSI, Player, Director,
   };
 }));

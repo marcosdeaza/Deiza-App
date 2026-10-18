@@ -164,7 +164,7 @@ const S = {
 const itemEls = new Map();
 
 // Code models and effort levels (ids match the engine)
-const GAS55_AT = '2026-10-19T12:00:00+02:00';
+const GAS55_AT = '2026-10-18T17:00:00+02:00';
 const gas55Live = (now = Date.now()) => now >= Date.parse(GAS55_AT);
 const LIQUID55_AT = '2026-10-12T00:00:00+02:00';
 const liquid55Live = (now = Date.now()) => now >= Date.parse(LIQUID55_AT);
@@ -173,11 +173,11 @@ const gas55Effort = () => { try { const e = localStorage.getItem('deiza:code:gas
 const MODELS = [
   { id: 'deiza-solid-5', name: 'Solid 5', tag: 'El más capaz · 1M de contexto', desc: 'Metódico: planifica, verifica y resuelve lo difícil. Contexto de 1M, ve imágenes.', badge: 'Recomendado' },
   { id: 'deiza-omniscient', get name() { return liquid55Live() ? 'Liquid 5.5' : 'Liquid 5.1'; }, tag: 'Equilibrado y agéntico', get desc() { return liquid55Live() ? 'Razonamiento adaptativo, contexto de 1M y visión.' : 'Rápido y equilibrado, contexto de 256K. Ve imágenes.'; }, badge: null },
-  { id: 'deiza-liquid-5.1', name: 'Liquid 5.1', desc: 'Generación anterior, contexto de 256K y visión.', badge: null, get hidden() { return !liquid55Live(); } },
+  { id: 'deiza-liquid-5.1', name: 'Liquid 5.1', desc: 'Generación anterior, contexto de 256K y visión.', badge: null, get hidden() { return !liquid55Live(); }, get legacy() { return liquid55Live(); } },
   { id: 'deiza-liquid-5.5', name: 'Liquid 5.5', desc: 'Razonamiento adaptativo, contexto de 1M y visión.', badge: null, hidden: true },
   { id: 'deiza-gas', get name() { return gas55Live() ? 'GAS 5.5' : 'Gas 4.5'; }, tag: 'Rápido', get desc() { return gas55Live() ? 'Chat y código, visión, herramientas y contexto de 200K.' : 'Para cambios pequeños e ideas rápidas.'; }, badge: null },
-  { id: 'deiza-gas-5.5', name: 'GAS 5.5', desc: '19 de octubre, 12:00 (hora peninsular).', get hidden() { return gas55Live(); }, get disabled() { return !gas55Live(); }, badge: null },
-  { id: 'deiza-gas-4.5', name: 'Gas 4.5', get desc() { return gas55Live() ? 'Obsoleto · Generación anterior.' : 'Versión anterior fija.'; }, get hidden() { return !gas55Live(); }, badge: null },
+  { id: 'deiza-gas-5.5', name: 'GAS 5.5', desc: '18 de octubre, 17:00 (hora peninsular).', get hidden() { return gas55Live(); }, get disabled() { return !gas55Live(); }, badge: null },
+  { id: 'deiza-gas-4.5', name: 'Gas 4.5', get desc() { return gas55Live() ? 'Obsoleto · Generación anterior.' : 'Versión anterior fija.'; }, get hidden() { return !gas55Live(); }, get legacy() { return gas55Live(); }, badge: null },
 ];
 const EFFORTS = [
   { id: 'low',    name: 'Bajo',        desc: 'Rápido y directo: lo justo para resolverlo.' },
@@ -1305,12 +1305,14 @@ function stickToBottom() { if (stick) requestAnimationFrame(() => scrollToBottom
 
 // Capu stands on the top edge of the input bar: the stage ends at its feet (row 28 of the scene).
 // The stage holds every form (Gas, Liquid, Solid), so changing model never resizes or moves it.
-const CAPU_FORMS = Object.keys(Capu.FORMS);
+const CAPU_FORMS = Object.keys(Capu.FORMS).flatMap(f => [f, `${f}:old`]);
 const CAPU_STAND = (() => { const b = Capu.centeredBox(Object.keys(Capu.SCENES), 0, CAPU_FORMS); return { x: b.x, y: b.y, w: b.w, h: 28 - b.y }; })();
 let capuHeroBox = null;
 const CAPU_HERO = () => capuHeroBox || (capuHeroBox = Capu.centeredBox(Object.keys(Capu.SCENES), 1, CAPU_FORMS));
-/** One Capu per model family: Gas is small and violet, Liquid the usual one, Solid a bigger cut garnet. */
-const capuForm = () => Capu.formFor(currentChoice().model);
+/** One Capu per model family: Gas is small and violet, Liquid the usual one, Solid a bigger cut garnet.
+ *  A retired model that can still be used (MODELS `legacy`) gets the same form as an old Capu. */
+const capuFormOf = (model) => Capu.formFor(modelInfo(model).id, { legacy: Boolean(modelInfo(model).legacy) });
+const capuForm = () => capuFormOf(currentChoice().model);
 const capuEnabled = () => localStorage.getItem('deiza:capu') !== '0';
 // Capu has its own motion preference: full effects by default, with system/reduced options in Code settings.
 const capuMotion = () => { const m = localStorage.getItem('deiza:capu:motion'); return ['full', 'system', 'reduced'].includes(m) ? m : 'full'; };
@@ -1485,11 +1487,11 @@ function capuEffort(prev, next) {
 /** The model changed: the Capu on screen evolves into the new form; the other one just takes it. */
 function capuMorph(model) {
   if (!capuEnabled()) return;
-  const form = Capu.formFor(model);
+  const form = capuFormOf(model);
   if (S.cur) { capuInit(); capuReturnHome(); }
   const d = capuDirector();
   for (const other of [capu.director, S.heroDirector]) if (other && other !== d) other.p.setForm(form);
-  if (d) d.morph(form, form);
+  if (d) d.morph(form, form.split(':')[0]);
 }
 function capuCommandKind(cmd) {
   const c = String(cmd || '');
