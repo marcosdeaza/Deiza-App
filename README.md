@@ -8,6 +8,12 @@ El workspace de Deiza y Deiza Code en una sola app para macOS, Windows y Linux.
 
 ![Deiza Code trabajando en un proyecto, con la página generada en el panel lateral](docs/screenshots/code-session.png)
 
+## Versión actual: 1.2.6
+
+Incluye el motor de Deiza Code **2.5.5**. GAS 5.5 se activa automáticamente el **19 de octubre de 2026 a las 12:00, hora peninsular española**, con 200K de contexto, imágenes, herramientas y esfuerzo ajustable. Antes de esa hora, Gas sigue usando la generación 4.5; después, Gas 4.5 queda disponible como generación anterior.
+
+El esfuerzo de GAS empieza en Bajo y se guarda por separado del de Liquid y Solid. Los niveles superiores pueden tardar más y consumir más tokens. Se mantiene la cuota de Gas 4.5.
+
 ## Capturas
 
 | | |
@@ -40,7 +46,7 @@ El motor de animación es un solo archivo sin dependencias (`src/renderer/capu.j
 - Agente local que lee, escribe y ejecuta en la carpeta del proyecto, con tres modos: **Build** (autónomo), **Copilot** (apruebas cada cambio y comando) y **Plan** (solo lee y propone).
 - Tarjetas por herramienta: diffs con líneas añadidas y quitadas, salida de terminal en directo, "Revertir cambios" por respuesta.
 - Panel lateral con el árbol del proyecto, los cambios de la sesión y vista previa de archivos y páginas HTML.
-- Modelo (Liquid 5.1, Solid 5, Gas 4.5) y esfuerzo en cinco niveles, de Bajo a Omnisciente, con el razonamiento del modelo visible y plegable.
+- Modelo (Liquid 5.5, Solid 5 y Gas) y esfuerzo en cinco niveles, de Bajo a Omnisciente, con el razonamiento del modelo visible y plegable.
 - Dictado por voz y tus skills de Deiza aplicadas también al agente.
 - Arrastra archivos, scripts, imágenes, carpetas y ZIP al mensaje. Se adjuntan sin cambiar el proyecto; los ZIP se extraen para que el agente pueda leerlos.
 - Navegador propio con dirección, pestañas, sesión persistente, lectura de páginas, capturas, clics, texto, teclas y desplazamiento. Sirve para probar las apps que crea Code y trabajar con las webs en las que inicias sesión.
