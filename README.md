@@ -8,7 +8,9 @@ El workspace de Deiza y Deiza Code en una sola app para macOS, Windows y Linux.
 
 ![Deiza Code trabajando en un proyecto, con la página generada en el panel lateral](docs/screenshots/code-session.png)
 
-## Versión actual: 1.2.8
+## Versión actual: 1.2.9
+
+En el selector de modelos de Code, los modelos actuales van arriba y los anteriores que se siguen pudiendo usar (Liquid 5.1, Gas 4.5) se agrupan en «Más modelos», plegado por defecto.
 
 GAS 5.5 llega antes: desde el 18 de octubre a las 17:00. Los modelos anteriores que se siguen pudiendo usar (Gas 4.5, Liquid 5.1) llevan su Capu en modo abuelo: color apagado, cejas blancas, monóculo y bastón.
 

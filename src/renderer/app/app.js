@@ -2208,11 +2208,29 @@ function toggleModelMenu(btn) {
   const c = currentChoice();
   const el = h('div', { class: 'model-menu', role: 'dialog', 'aria-label': T('Modelo y esfuerzo') });
   const list = h('div', { class: 'mm-list', role: 'menu' });
-  for (const m of MODELS.filter(m => !m.hidden || m.id === c.model)) {
+  const row = (m) => {
     const on = m.id === c.model;
-    list.append(h('button', { class: `mm-row${on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(on), disabled: !!m.disabled, 'aria-disabled': String(!!m.disabled), onclick: () => { if (!m.disabled) { chooseModel({ model: m.id }); closeModelMenu(); } } },
+    return h('button', { class: `mm-row${on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(on), disabled: !!m.disabled, 'aria-disabled': String(!!m.disabled), onclick: () => { if (!m.disabled) { chooseModel({ model: m.id }); closeModelMenu(); } } },
       h('span', { class: 'mm-main' }, h('span', { class: 'mm-title', text: m.name }), h('span', { class: 'mm-sub', text: T(m.desc) })),
-      h('span', { class: 'mm-check' }, on ? icon('check') : null)));
+      h('span', { class: 'mm-check' }, on ? icon('check') : null));
+  };
+  const visible = MODELS.filter(m => !m.hidden || m.id === c.model);
+  // Current generations first; retired ones that can still be used wait under "Más modelos",
+  // folded unless one of them is the model in use.
+  for (const m of visible.filter(m => !m.legacy)) list.append(row(m));
+  const older = visible.filter(m => m.legacy);
+  if (older.length) {
+    const open = older.some(m => m.id === c.model);
+    const more = h('div', { class: `mm-more${open ? ' open' : ''}`, id: 'mm-more', role: 'group', 'aria-label': T('Modelos anteriores') }, ...older.map(row));
+    const toggle = h('button', { class: 'mm-toggle', 'aria-expanded': String(open), 'aria-controls': 'mm-more',
+      onclick: () => {
+        const next = !more.classList.contains('open');
+        more.classList.toggle('open', next);
+        toggle.setAttribute('aria-expanded', String(next));
+        if (modelMenu) modelMenu.place();
+      } },
+    h('span', { class: 'mm-toggle-label', text: T('Más modelos') }), h('span', { class: 'mm-count', text: String(older.length) }), icon('down', 'i mm-chev'));
+    list.append(toggle, more);
   }
   el.append(list);
   const legacyGas = ['deiza-gas', 'deiza-gas-4.5'].includes(c.model) && !isGas55Model(c.model);
@@ -2221,11 +2239,15 @@ function toggleModelMenu(btn) {
   else if (c.model === 'deiza-gas-4.5' || c.model === 'deiza-gas') el.append(h('p', { class: 'mm-note', text: T('Gas 4.5 no tiene razonamiento extendido: el esfuerzo solo cambia cuánto explora y verifica el agente.') }));
   el.style.visibility = 'hidden';
   document.body.append(el);
-  const r = btn.getBoundingClientRect();
-  const w = el.offsetWidth;
-  const hgt = el.offsetHeight;
-  el.style.left = `${Math.max(12, Math.min(window.innerWidth - w - 12, r.right - w))}px`;
-  el.style.top = `${r.top > hgt + 24 ? r.top - hgt - 8 : r.bottom + 8}px`;
+  // above the pill when it fits, below otherwise; again when "Más modelos" opens or closes
+  const place = () => {
+    const r = btn.getBoundingClientRect();
+    const w = el.offsetWidth;
+    const hgt = el.offsetHeight;
+    el.style.left = `${Math.max(12, Math.min(window.innerWidth - w - 12, r.right - w))}px`;
+    el.style.top = `${r.top > hgt + 24 ? r.top - hgt - 8 : r.bottom + 8}px`;
+  };
+  place();
   el.style.visibility = '';
   btn.setAttribute('aria-expanded', 'true');
   const onDown = (e) => { if (!el.contains(e.target) && !btn.contains(e.target)) closeModelMenu(); };
@@ -2233,7 +2255,7 @@ function toggleModelMenu(btn) {
   document.addEventListener('mousedown', onDown, true);
   document.addEventListener('keydown', onKey, true);
   window.addEventListener('resize', closeModelMenu);
-  modelMenu = { el, btn, onDown, onKey };
+  modelMenu = { el, btn, onDown, onKey, place };
   el.querySelector('.mm-row.on')?.focus();
 }
 

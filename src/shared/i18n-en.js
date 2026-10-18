@@ -17,7 +17,7 @@
     'Escribe el mensaje; los adjuntos se envían cuando termine.': 'Write the message; attachments go when it finishes.',
     'Señalar': 'Point', 'Historial': 'History', 'Mover pieza': 'Move piece',
     'Ajustes': 'Settings', 'Ajustes…': 'Settings…', 'Cuenta': 'Account', 'General': 'General', 'Acerca de': 'About',
-    'Cerrar sesión': 'Sign out', 'Nueva sesión': 'New session', 'Abrir carpeta…': 'Open folder…', 'Modelo': 'Model',
+    'Cerrar sesión': 'Sign out', 'Nueva sesión': 'New session', 'Abrir carpeta…': 'Open folder…', 'Modelo': 'Model', 'Más modelos': 'More models', 'Modelos anteriores': 'Previous models',
     'Esfuerzo': 'Effort', 'Bajo': 'Low', 'Medio': 'Medium', 'Alto': 'High', 'Omnisciente': 'Max', 'Idioma': 'Language',
     'Animaciones de Capu': 'Capu animations', 'Completa': 'Full', 'Según el sistema': 'Follow system', 'Reducida': 'Reduced',
     'Elige todas las animaciones, la preferencia del sistema o poses sin movimiento.': 'Choose all animations, the system preference, or still poses.',
