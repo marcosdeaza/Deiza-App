@@ -8,7 +8,9 @@ El workspace de Deiza y Deiza Code en una sola app para macOS, Windows y Linux.
 
 ![Deiza Code trabajando en un proyecto, con la página generada en el panel lateral](docs/screenshots/code-session.png)
 
-## Versión actual: 1.2.6
+## Versión actual: 1.2.7
+
+Capu cambia con el modelo de Code: con Gas es pequeño y violeta, con Liquid es el de siempre y con Solid es un granate tallado, más grande y con vetas de oro. Al elegir otro modelo evoluciona delante de ti y después hace la reacción de ese modelo.
 
 Incluye el motor de Deiza Code **2.5.5**. GAS 5.5 se activa automáticamente el **19 de octubre de 2026 a las 12:00, hora peninsular española**, con 200K de contexto, imágenes, herramientas y esfuerzo ajustable. Antes de esa hora, Gas sigue usando la generación 4.5; después, Gas 4.5 queda disponible como generación anterior.
 
@@ -30,6 +32,10 @@ El esfuerzo de GAS empieza en Bajo y se guarda por separado del de Liquid y Soli
 <p align="center"><img src="docs/capu/capu-animated.svg" width="300" alt="Capu, la mascota de Deiza Code"></p>
 
 Capu es la mascota de Deiza Code: un capullo de rosa hecho bloque, con el pétalo izquierdo más alto y dos ojos que son huecos. Vive junto a la línea de estado mientras el agente trabaja y cambia de escena según lo que pasa: teclea en un portátil lleno de pegatinas cuando escribe, mira arriba cuando piensa, lee con lupa, espera con la barra de progreso mientras corre un comando, le cuenta el bug al pato de goma cuando algo falla tres veces y florece cuando la tarea termina. De vez en cuando se toma un café o se echa una lata por el hueco de los pétalos. Si se acaba el uso, se mustia y se pone a escribir el traspaso. Se apaga en Ajustes, Code.
+
+<p align="center"><img src="docs/capu/capu-forms.svg" width="300" alt="Capu cambia de forma con el modelo: Liquid, Solid y Gas"></p>
+
+Cada modelo tiene su Capu. Gas es un capullito violeta, más pequeño y con una voluta de vapor; Liquid es el Capu de siempre; Solid es un granate tallado, más grande, con tres pétalos en corona, canto iluminado y vetas de oro. Las tres formas comparten centro y suelo, así que todas las escenas valen para todas, y al cambiar de modelo la silueta dorada parpadea entre la forma vieja y la nueva hasta acabar en un destello.
 
 ![Capu tecleando mientras Deiza Code escribe un archivo](docs/screenshots/code-capu.png)
 
